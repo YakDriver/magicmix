@@ -16,6 +16,7 @@
 GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go build ./...
 
 # run against a csv file
+# run against a csv file (CLI prints the seed it used so you can rerun with --seed=<value>)
 ./magicmix --input tracks.csv --output ordered.csv
 
 # inspect available strategies
@@ -36,7 +37,7 @@ Options:
 - `--list-strategies` – print registered strategies and exit
 - `--timeout` – optional processing timeout (e.g. `30s`)
 - `--limit` – maximum number of tracks to output (leave unset to keep all)
-- `--seed` – seed for pseudo-random decisions (omit for a different shuffle each run)
+- `--seed` – deterministic seed for pseudo-random decisions; omit or set to `0` for a time-based seed (the CLI logs the chosen seed so you can rerun with it)
 
 ## Next Steps
 
