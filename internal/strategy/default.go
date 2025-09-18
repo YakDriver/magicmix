@@ -194,8 +194,7 @@ func idealCycleLength(total int) int {
 	}
 
 	estimatedCycles := int(math.Max(1, math.Round(float64(total)/float64(cycleIdealTracks))))
-	length := min(max(int(math.Round(float64(total)/float64(estimatedCycles))), cycleMinTracks), cycleMaxTracks)
-	return length
+	return min(max(int(math.Round(float64(total)/float64(estimatedCycles))), cycleMinTracks), cycleMaxTracks)
 }
 
 func (p *mixPlanner) initialState(start track.Track) mixState {
