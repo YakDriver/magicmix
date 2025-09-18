@@ -36,7 +36,7 @@ func TestDefaultSorterRealDataEvaluation(t *testing.T) {
 	totals := make([]float64, 0, rounds)
 	var agg evaluationSummary
 
-	for round := 0; round < rounds; round++ {
+	for round := range rounds {
 		sampleSize := 10 + r.Intn(71) // 10-80 tracks
 		sample := randomSubset(r, allTracks, sampleSize)
 
@@ -70,8 +70,7 @@ func BenchmarkDefaultSorterRealData(b *testing.B) {
 	sorter := strategy.NewDefaultSorter()
 	r := evaluationRNG(b)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sampleSize := 10 + r.Intn(71)
 		sample := randomSubset(r, allTracks, sampleSize)
 		seed := r.Int63()
