@@ -1,3 +1,3 @@
 module github.com/YakDriver/magicmix
 
-go 1.25.1
+go 1.25
