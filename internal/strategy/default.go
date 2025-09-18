@@ -194,10 +194,7 @@ func idealCycleLength(total int) int {
 	}
 
 	estimatedCycles := int(math.Max(1, math.Round(float64(total)/float64(cycleIdealTracks))))
-	length := max(int(math.Round(float64(total)/float64(estimatedCycles))), cycleMinTracks)
-	if length > cycleMaxTracks {
-		length = cycleMaxTracks
-	}
+	length := min(max(int(math.Round(float64(total)/float64(estimatedCycles))), cycleMinTracks), cycleMaxTracks)
 	return length
 }
 
