@@ -216,11 +216,38 @@ func (p *mixPlanner) initialState(start track.Track) mixState {
 }
 
 func (p *mixPlanner) chooseStartIndex() int {
+	// First, collect all tracks grouped by key number to ensure we have good options
+	keyGroups := make(map[int][]int)
+	for idx, candidate := range p.remaining {
+		keyGroups[candidate.Key.Number] = append(keyGroups[candidate.Key.Number], idx)
+	}
+
+	// Choose a random key number from those with at least 2 tracks (to enable good mixing)
+	var eligibleKeyNumbers []int
+	for keyNum, indices := range keyGroups {
+		if len(indices) >= 2 {
+			eligibleKeyNumbers = append(eligibleKeyNumbers, keyNum)
+		}
+	}
+
+	// If no key has 2+ tracks, fall back to all keys
+	if len(eligibleKeyNumbers) == 0 {
+		for keyNum := range keyGroups {
+			eligibleKeyNumbers = append(eligibleKeyNumbers, keyNum)
+		}
+	}
+
+	// Randomly select a key number
+	selectedKeyNum := eligibleKeyNumbers[p.rng.Intn(len(eligibleKeyNumbers))]
+	keyNumberCandidates := keyGroups[selectedKeyNum]
+
+	// Now find the best candidate within that key number using the original scoring logic
 	bestScore := math.Inf(1)
 	var candidates []int
 
-	for idx, candidate := range p.remaining {
-		score := p.startScore(candidate)
+	for _, idx := range keyNumberCandidates {
+		candidate := p.remaining[idx]
+		score := p.startScoreWithinKey(candidate)
 		if score < bestScore-startSelectionTolerance {
 			bestScore = score
 			candidates = candidates[:0]
@@ -231,7 +258,7 @@ func (p *mixPlanner) chooseStartIndex() int {
 	}
 
 	if len(candidates) == 0 {
-		return 0
+		return keyNumberCandidates[0]
 	}
 
 	return candidates[p.rng.Intn(len(candidates))]
@@ -253,6 +280,23 @@ func (p *mixPlanner) startScore(candidate track.Track) float64 {
 	bpmDiff := math.Abs(candidate.BPM - p.stats.bpmMedian)
 
 	return freqScore + energyDiff*0.2 + bpmDiff*0.05
+}
+
+func (p *mixPlanner) startScoreWithinKey(candidate track.Track) float64 {
+	// Modified scoring function that doesn't heavily favor key frequency
+	// Instead focuses on energy and BPM characteristics for good mixing
+	energyTarget := p.stats.energyLow
+	energyDiff := math.Abs(float64(candidate.Energy) - energyTarget)
+	bpmDiff := math.Abs(candidate.BPM - p.stats.bpmMedian)
+
+	// Small bonus for having mode variety
+	modeCount := float64(p.countsByKey[candidate.Key])
+	modeBonus := 0.0
+	if modeCount > 1 {
+		modeBonus = -1.0
+	}
+
+	return energyDiff*0.4 + bpmDiff*0.1 + modeBonus
 }
 
 func (p *mixPlanner) chooseNextIndex(state *mixState) int {
