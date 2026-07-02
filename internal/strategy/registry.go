@@ -13,6 +13,7 @@ var (
 		defaultStrategyName:   func() Sorter { return NewDefaultSorter() },
 		eloiseStrategyName:    func() Sorter { return NewEloiseSorter() },
 		constanceStrategyName: func() Sorter { return NewConstanceSorter() },
+		flowStrategyName:      func() Sorter { return NewFlowSorter() },
 	}
 )
 
