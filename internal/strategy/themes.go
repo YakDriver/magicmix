@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"math/rand"
+	"sort"
 	"time"
 
 	"github.com/YakDriver/magicmix/internal/track"
@@ -11,28 +12,27 @@ import (
 const themesStrategyName = "themes"
 
 const (
-	themeMinWaveTracks = 5    // a pot needs at least this many songs to yield a wave
-	themeWaveMinutes   = 24.0 // aim for roughly one ~20-min wave per chunk
-	themeWaveTracks    = 8    // fallback chunk size when durations are absent
-	themePotsPerRound  = 4    // upper bound on pots drawn per round
+	themeMinChapter    = 4    // a theme needs at least this many pool songs to form a chapter
+	themeTargetMinutes = 22.0 // aim for ~20-30 min chapters
+	themeMaxMinutes    = 30.0 // hard ceiling on chapter length
+	themeMaxTracks     = 12   // safety cap (and the size when durations are absent, see below)
+	themeFallbackTrack = 8    // chapter size in tracks when durations are unavailable
 )
 
-// ThemesSorter builds a set out of themed waves. Each round it draws a random subset
-// of "similarity pots" (bands of a characteristic — mood, danceability, era, etc.),
-// runs the pool members of each pot through the flow optimizer, and emits the leading
-// ~one-wave chunk as a coherent themed section. Unused songs return to the pool and
-// may be picked up by a different pot later; when the pool is too small to theme, the
-// leftovers are flowed as a final chapter.
+// ThemesSorter builds a set from themed chapters ("mini-sets"). Each chapter is a
+// ~20-30 minute run of songs that share a characteristic (mood, danceability,
+// acousticness, era, or energy band) and that builds in intensity from calm to peak.
+// Consecutive chapters use different themes so the set keeps changing character.
 //
-// Energy/intensity still provides the build within each wave (via flow); the theme
-// only decides which songs cluster together. The random pot subset per seed makes the
-// chaptering vary run to run.
-type ThemesSorter struct {
-	weights Weights
-}
+// Composition is direct and bounded: pick a theme (different from the last), draw a
+// ~one-wave-worth of its songs from the pool, order them by intensity ascending
+// (the build), and move on. Leftover songs return to the pool for other themes; the
+// final remainder becomes a closing chapter. The random draws make the chaptering
+// vary by seed.
+type ThemesSorter struct{}
 
 func NewThemesSorter() *ThemesSorter {
-	return &ThemesSorter{weights: DefaultWeights}
+	return &ThemesSorter{}
 }
 
 func (s *ThemesSorter) Name() string {
@@ -49,9 +49,6 @@ func (s *ThemesSorter) Sort(ctx context.Context, tracks []track.Track) ([]track.
 	for i, t := range tracks {
 		pool[i] = t.Clone()
 	}
-	if len(pool) <= themeMinWaveTracks {
-		return s.flow(ctx, pool)
-	}
 
 	seed, ok := seedFromContext(ctx)
 	if !ok || seed == 0 {
@@ -59,51 +56,45 @@ func (s *ThemesSorter) Sort(ctx context.Context, tracks []track.Track) ([]track.
 	}
 	rng := rand.New(rand.NewSource(seed))
 
-	pots := availablePots(pool)
 	out := make([]track.Track, 0, len(pool))
-
-	for len(pool) >= themeMinWaveTracks && len(pots) > 0 {
+	for _, chapter := range composeChapters(pool, rng) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-
-		progressed := false
-		for _, p := range pickPots(pots, rng) {
-			members, rest := partition(pool, p.match)
-			if len(members) < themeMinWaveTracks {
-				continue
-			}
-			ordered, err := s.flow(ctx, members)
-			if err != nil {
-				return nil, err
-			}
-			take := waveChunkSize(ordered)
-			out = append(out, ordered[:take]...)
-			pool = append(rest, ordered[take:]...)
-			progressed = true
-		}
-		if !progressed {
-			break
-		}
-	}
-
-	// Wind-down: flow whatever is left as a final chapter.
-	if len(pool) > 0 {
-		rest, err := s.flow(ctx, pool)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, rest...)
+		out = append(out, chapter...)
 	}
 	return out, nil
 }
 
-func (s *ThemesSorter) flow(ctx context.Context, tracks []track.Track) ([]track.Track, error) {
-	return (&FlowSorter{weights: s.weights}).Sort(ctx, tracks)
+// composeChapters greedily carves the pool into themed, intensity-building chapters.
+func composeChapters(pool []track.Track, rng *rand.Rand) [][]track.Track {
+	var chapters [][]track.Track
+	prevTheme := ""
+
+	for len(pool) >= themeMinChapter {
+		pots := availablePots(pool)
+		if len(pots) == 0 {
+			break
+		}
+		theme := pickTheme(pots, prevTheme, rng)
+		members, rest := partition(pool, theme.match)
+
+		wave, leftover := drawWave(members, rng)
+		buildOrder(wave)
+		chapters = append(chapters, wave)
+
+		pool = append(rest, leftover...)
+		prevTheme = theme.name
+	}
+
+	if len(pool) > 0 {
+		buildOrder(pool)
+		chapters = append(chapters, pool)
+	}
+	return chapters
 }
 
-// availablePots returns the pots whose characteristic is present in enough tracks to
-// form at least one wave.
+// availablePots returns pots with at least themeMinChapter matching tracks.
 func availablePots(tracks []track.Track) []themePot {
 	catalog := []themePot{
 		{"happy", func(t track.Track) bool { return t.Valence != nil && *t.Valence >= 60 }},
@@ -126,22 +117,82 @@ func availablePots(tracks []track.Track) []themePot {
 				count++
 			}
 		}
-		if count >= themeMinWaveTracks {
+		if count >= themeMinChapter {
 			avail = append(avail, p)
 		}
 	}
 	return avail
 }
 
-// pickPots returns a seeded random subset (1..themePotsPerRound) of the pots.
-func pickPots(pots []themePot, rng *rand.Rand) []themePot {
-	shuffled := make([]themePot, len(pots))
-	copy(shuffled, pots)
-	rng.Shuffle(len(shuffled), func(i, j int) {
-		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+// pickTheme chooses a pot at random, preferring one different from the previous
+// chapter's theme so consecutive chapters contrast.
+func pickTheme(pots []themePot, prev string, rng *rand.Rand) themePot {
+	candidates := pots
+	if prev != "" {
+		filtered := make([]themePot, 0, len(pots))
+		for _, p := range pots {
+			if p.name != prev {
+				filtered = append(filtered, p)
+			}
+		}
+		if len(filtered) > 0 {
+			candidates = filtered
+		}
+	}
+	return candidates[rng.Intn(len(candidates))]
+}
+
+// drawWave randomly selects ~one chapter's worth of songs (about themeTargetMinutes
+// of playtime, capped by themeMaxTracks; or themeFallbackTrack songs when durations
+// are unavailable) and returns them plus the unused remainder.
+func drawWave(members []track.Track, rng *rand.Rand) (wave, leftover []track.Track) {
+	order := rng.Perm(len(members))
+
+	haveDurations := true
+	for _, t := range members {
+		if t.Duration == nil {
+			haveDurations = false
+			break
+		}
+	}
+
+	chosen := make(map[int]struct{})
+	secs := 0.0
+	for _, idx := range order {
+		if len(chosen) >= themeMaxTracks {
+			break
+		}
+		if haveDurations {
+			if secs >= themeTargetMinutes*60 {
+				break
+			}
+			next := secs + float64(*members[idx].Duration)
+			// Don't blow past the hard ceiling once we already have a chapter.
+			if len(chosen) >= themeMinChapter && next > themeMaxMinutes*60 {
+				break
+			}
+			secs = next
+		} else if len(chosen) >= themeFallbackTrack {
+			break
+		}
+		chosen[idx] = struct{}{}
+	}
+
+	for i, t := range members {
+		if _, ok := chosen[i]; ok {
+			wave = append(wave, t)
+		} else {
+			leftover = append(leftover, t)
+		}
+	}
+	return wave, leftover
+}
+
+// buildOrder sorts a chapter so intensity rises from start to finish.
+func buildOrder(chapter []track.Track) {
+	sort.SliceStable(chapter, func(a, b int) bool {
+		return intensity(chapter[a]) < intensity(chapter[b])
 	})
-	k := 1 + rng.Intn(min(themePotsPerRound, len(shuffled)))
-	return shuffled[:k]
 }
 
 func partition(pool []track.Track, match func(track.Track) bool) (members, rest []track.Track) {
@@ -153,39 +204,4 @@ func partition(pool []track.Track, match func(track.Track) bool) (members, rest 
 		}
 	}
 	return members, rest
-}
-
-// waveChunkSize returns how many leading tracks of a flowed pot make ~one wave:
-// enough to reach ~themeWaveMinutes of playtime (or themeWaveTracks without
-// durations), clamped to [themeMinWaveTracks, len].
-func waveChunkSize(ordered []track.Track) int {
-	n := len(ordered)
-	target := themeWaveTracks
-
-	haveDurations := true
-	for _, t := range ordered {
-		if t.Duration == nil {
-			haveDurations = false
-			break
-		}
-	}
-	if haveDurations {
-		target = n
-		acc := 0.0
-		for i, t := range ordered {
-			acc += float64(*t.Duration)
-			if acc >= themeWaveMinutes*60 {
-				target = i + 1
-				break
-			}
-		}
-	}
-
-	if target < themeMinWaveTracks {
-		target = themeMinWaveTracks
-	}
-	if target > n {
-		target = n
-	}
-	return target
 }
