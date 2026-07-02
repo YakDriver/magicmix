@@ -62,6 +62,7 @@ const (
 	colPopularity
 	colAcousticness
 	colLength
+	colYear
 )
 
 // columnSynonyms maps normalized header names to canonical columns.
@@ -76,6 +77,7 @@ var columnSynonyms = map[string]column{
 	"pop": colPopularity, "popularity": colPopularity,
 	"acoustic": colAcousticness, "acousticness": colAcousticness,
 	"length": colLength, "duration": colLength, "len": colLength,
+	"release": colYear, "released": colYear, "year": colYear,
 }
 
 // normalizeHeader lowercases and strips surrounding spaces and trailing dots so
@@ -154,7 +156,25 @@ func recordToTrack(record []string, columns map[column]int) (track.Track, error)
 	tr.Popularity = optionalScale(field(colPopularity))
 	tr.Acousticness = optionalScale(field(colAcousticness))
 	tr.Duration = optionalDuration(field(colLength))
+	tr.Year = optionalYear(field(colYear))
 	return tr, nil
+}
+
+// optionalYear extracts a 4-digit release year from values like "2024-05-01" or
+// "2024", returning nil when absent or unparseable.
+func optionalYear(s string, present bool) *int {
+	if !present {
+		return nil
+	}
+	s = strings.TrimSpace(s)
+	if len(s) < 4 {
+		return nil
+	}
+	year, err := strconv.Atoi(s[:4])
+	if err != nil || year < 1900 || year > 2200 {
+		return nil
+	}
+	return &year
 }
 
 // parseDuration parses a track length such as "3:17" (m:ss) or "1:02:03" (h:mm:ss),

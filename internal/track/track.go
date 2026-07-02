@@ -69,6 +69,7 @@ type Track struct {
 	Popularity   *int // 0-100, higher = more popular
 	Acousticness *int // 0-100, higher = more acoustic
 	Duration     *int // track length in seconds
+	Year         *int // release year (e.g. 2024)
 }
 
 // Clone returns a copy useful for preserving the original slice whilst sorting.
@@ -86,6 +87,7 @@ func (t Track) Clone() Track {
 	clone.Popularity = copyIntPtr(t.Popularity)
 	clone.Acousticness = copyIntPtr(t.Acousticness)
 	clone.Duration = copyIntPtr(t.Duration)
+	clone.Year = copyIntPtr(t.Year)
 	return clone
 }
 
