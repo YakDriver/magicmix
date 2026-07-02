@@ -24,15 +24,20 @@ matter:
 
 - **Required:** `title`, `artist`, `bpm`, `energy`, `key` (Camelot, e.g. `8B`)
 - **Optional, used when present:** `danceability`, `valence`, `popularity`,
-  `acousticness`, `length` (`m:ss`)
+  `acousticness`, `length` (`m:ss`), `release` (a date or year, e.g. `2024-05-01`)
 
 Headerless files fall back to positional `title,artist,bpm,energy,key`.
 
 ## Strategies
 
-`flow` is recommended — it treats ordering as a path-optimization problem and
-minimizes the exact score `--score` reports. `default`, `eloise`, and `constance` are
-earlier heuristics kept for comparison. See them with `--list-strategies`.
+- **`flow`** (recommended) — treats ordering as a path-optimization problem and
+  minimizes the exact score `--score` reports.
+- **`chave`** — builds the set from *chaves* (themed ~20-30 min chapters): each groups
+  songs that share three traits (e.g. modern + danceable + popular) and builds in
+  intensity. Trades some transition smoothness for human-noticeable grouping.
+- `default`, `eloise`, `constance` — earlier heuristics kept for comparison.
+
+List them with `--list-strategies`.
 
 ## How it scores (lower is better)
 
@@ -51,7 +56,7 @@ One adaptive model — signals you don't have are skipped:
 | --- | --- |
 | `--input` | source CSV (required) |
 | `--output` | destination (default `<input>_magicmix.csv`) |
-| `--strategy` | ordering strategy — use `flow` |
+| `--strategy` | ordering strategy — `flow` (smoothest) or `chave` (themed chapters) |
 | `--keep-all` | keep every track (by default up to 10% of misfits are dropped and reported) |
 | `--limit` | cap how many tracks are written |
 | `--seed` | deterministic seed (`0`/omitted = time-based; printed so you can rerun) |
@@ -63,6 +68,7 @@ One adaptive model — signals you don't have are skipped:
 
 ```bash
 make build   # compile
+make install # install the magicmix binary to $GOBIN
 make test    # unit tests
 make ci      # build + test + vet + modernize
 make lint    # golangci-lint

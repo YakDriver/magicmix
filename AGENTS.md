@@ -23,7 +23,9 @@ Lower is better; signals absent from the data are skipped.
 ## Layout
 - `cmd/magicmix` — CLI entrypoint.
 - `internal/cli` — flags and wiring (`--strategy`, `--seed`, `--limit`, `--keep-all`, `--score`).
-- `internal/strategy` — strategies (`flow` is primary; `default`/`eloise`/`constance` are legacy), the scoring model (`score.go`), and outlier detection (`outliers.go`).
+- `internal/strategy` — strategies (`flow` is primary; `chave` groups songs into
+  themed ~20-30 min chapters; `default`/`eloise`/`constance` are legacy), the scoring
+  model (`score.go`), and outlier detection (`outliers.go`).
 - `internal/track`, `internal/csvio` — domain model and header-aware CSV IO.
 - `internal/testdata` — fixtures.
 
