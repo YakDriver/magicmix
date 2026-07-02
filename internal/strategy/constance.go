@@ -221,7 +221,7 @@ func (s *ConstanceSorter) calculateCompositeScore(mix []track.Track, totalInputT
 
 	// Get the raw quality score
 	mixScore := ScoreMix(mix)
-	qualityScore := mixScore.Total
+	qualityScore := int(math.Round(mixScore.Total))
 
 	// Calculate starting energy adherence bonus/penalty
 	startingEnergyScore := 0

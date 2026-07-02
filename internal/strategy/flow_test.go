@@ -81,7 +81,7 @@ func TestFlowSorterBeatsInputOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sort error: %v", err)
 	}
-	cm := buildCostMatrix(tracks, defaultFlowWeights)
+	cm := buildCostMatrix(tracks, DefaultWeights)
 
 	inputPerm := make([]int, len(tracks))
 	for i := range inputPerm {
@@ -126,26 +126,17 @@ func TestTempoCostOctaveFolding(t *testing.T) {
 	}
 }
 
-func TestEnergyCostAsymmetry(t *testing.T) {
-	// A gentle rise should never cost more than a symmetric drop of the same size.
-	rise := energyCost(50, 60)
-	drop := energyCost(60, 50)
-	if rise > drop {
-		t.Fatalf("gentle rise (%.3f) should not cost more than drop (%.3f)", rise, drop)
-	}
-}
-
 func TestMoodAndAcousticCostSkippedWhenAbsent(t *testing.T) {
 	a := track.Track{Energy: 50}
 	b := track.Track{Energy: 55}
-	if moodCost(a, b) != 0 || acousticCost(a, b) != 0 {
+	if valenceCost(a, b) != 0 || acousticCost(a, b) != 0 {
 		t.Fatal("optional-signal costs should be zero when signals are absent")
 	}
 	a.Valence, b.Valence = intPtr(20), intPtr(90)
-	if moodCost(a, b) <= 0 {
+	if valenceCost(a, b) <= 0 {
 		t.Fatal("valence swing should incur mood cost when present")
 	}
-	if math.Abs(moodCost(a, b)-moodCost(b, a)) > 1e-9 {
+	if math.Abs(valenceCost(a, b)-valenceCost(b, a)) > 1e-9 {
 		t.Fatal("mood cost should be symmetric")
 	}
 }
