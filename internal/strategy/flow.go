@@ -154,16 +154,25 @@ func (cm *costMatrix) greedy(start int) []int {
 	return perm
 }
 
-const improvementEps = 1e-9
+// improvementEps is the smallest score gain worth acting on. It is deliberately well
+// above float noise: chasing sub-threshold "improvements" is musically meaningless and
+// can make the search run for a very long time on finely-graded cost landscapes.
+const improvementEps = 1e-6
+
+// maxLocalSearchPasses caps improvement passes so the search always terminates
+// promptly; real inputs converge well within this, and stopping early just leaves a
+// near-optimal ordering.
+const maxLocalSearchPasses = 60
 
 // localSearch improves perm with 2-opt (segment reversal) and or-opt (segment
-// relocation, lengths 1-3) until a full pass yields no improvement. Because every
-// accepted move strictly lowers total cost, termination is guaranteed.
+// relocation, lengths 1-3) until a full pass yields no improvement or the pass cap is
+// reached. Every accepted move lowers total cost by at least improvementEps, so this
+// terminates.
 func (cm *costMatrix) localSearch(ctx context.Context, perm []int) ([]int, error) {
 	cost := cm.pathCost(perm)
 	scratch := make([]int, len(perm))
 
-	for {
+	for pass := 0; pass < maxLocalSearchPasses; pass++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -209,6 +218,7 @@ func (cm *costMatrix) localSearch(ctx context.Context, perm []int) ([]int, error
 			return perm, nil
 		}
 	}
+	return perm, nil
 }
 
 // reverseSegment reverses dst[i..j] inclusive.
@@ -262,7 +272,10 @@ func chooseStarts(seq []track.Track, rng *rand.Rand) []int {
 	for k := 0; k < 2 && k < n; k++ {
 		add(byIntensity[k])
 	}
-	for len(starts) < 6 {
+	// Add seed-driven random starts for exploration, but never ask for more unique
+	// starts than there are tracks (otherwise this can't be satisfied).
+	target := min(6, n)
+	for len(starts) < target {
 		add(rng.Intn(n))
 	}
 	return starts

@@ -33,6 +33,21 @@ func flowTestTracks() []track.Track {
 	return tracks
 }
 
+func TestFlowHandlesSmallInputs(t *testing.T) {
+	// Regression: chooseStarts must not loop forever when there are fewer than the
+	// desired number of random starts (n < 6).
+	base := flowTestTracks()
+	for _, n := range []int{3, 4, 5} {
+		ordered, err := NewFlowSorter().Sort(WithSeed(context.Background(), 1), base[:n])
+		if err != nil {
+			t.Fatalf("n=%d: Sort error: %v", n, err)
+		}
+		if len(ordered) != n {
+			t.Fatalf("n=%d: got %d tracks", n, len(ordered))
+		}
+	}
+}
+
 func TestFlowSorterDeterministic(t *testing.T) {
 	tracks := flowTestTracks()
 	sorter := NewFlowSorter()
