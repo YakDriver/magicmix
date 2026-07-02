@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
-	gosio "io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,7 +13,17 @@ import (
 )
 
 // Load reads tracks from a CSV file on disk.
+//
+// The reader is header-aware: it maps columns by name (case-insensitive, tolerant
+// of punctuation such as "POP.") so column order and extra/unknown columns do not
+// matter. Recognized optional signals (danceability, valence, popularity,
+// acousticness) are captured when present. Files without a recognizable header fall
+// back to the legacy positional layout: title, artist, bpm, energy, key.
 func Load(ctx context.Context, path string) ([]track.Track, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open input: %w", err)
@@ -23,54 +32,181 @@ func Load(ctx context.Context, path string) ([]track.Track, error) {
 
 	reader := csv.NewReader(file)
 	reader.TrimLeadingSpace = true
+	reader.FieldsPerRecord = -1 // tolerate rows with differing column counts
 
-	var (
-		tracks []track.Track
-		line   int
-		header bool
-	)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("read csv: %w", err)
+	}
+	if len(records) == 0 {
+		return nil, nil
+	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
+	if columns, ok := detectHeader(records[0]); ok {
+		return parseMapped(records[1:], columns)
+	}
+	return parsePositional(records)
+}
 
-		record, err := reader.Read()
-		if err != nil {
-			if err == gosio.EOF {
-				break
+// column identifies a canonical field the reader knows how to use.
+type column int
+
+const (
+	colTitle column = iota
+	colArtist
+	colBPM
+	colEnergy
+	colKey
+	colDanceability
+	colValence
+	colPopularity
+	colAcousticness
+)
+
+// columnSynonyms maps normalized header names to canonical columns.
+var columnSynonyms = map[string]column{
+	"title": colTitle, "song": colTitle, "track": colTitle, "name": colTitle,
+	"artist": colArtist, "artists": colArtist,
+	"bpm": colBPM, "tempo": colBPM,
+	"energy": colEnergy,
+	"key":    colKey, "camelot": colKey,
+	"dance": colDanceability, "danceability": colDanceability,
+	"valence": colValence, "mood": colValence,
+	"pop": colPopularity, "popularity": colPopularity,
+	"acoustic": colAcousticness, "acousticness": colAcousticness,
+}
+
+// normalizeHeader lowercases and strips surrounding spaces and trailing dots so
+// headers like "POP." or " Key " map cleanly.
+func normalizeHeader(s string) string {
+	return strings.TrimRight(strings.TrimSpace(strings.ToLower(s)), ".")
+}
+
+// detectHeader builds a column index from a row of header names. It only reports a
+// header when the core ordering signals (title, bpm, energy, key) are all present.
+func detectHeader(row []string) (map[column]int, bool) {
+	columns := make(map[column]int)
+	for i, cell := range row {
+		if c, ok := columnSynonyms[normalizeHeader(cell)]; ok {
+			if _, exists := columns[c]; !exists {
+				columns[c] = i
 			}
-			return nil, fmt.Errorf("read line %d: %w", line+1, err)
 		}
-		line++
-		if len(record) == 0 {
+	}
+	for _, required := range []column{colTitle, colBPM, colEnergy, colKey} {
+		if _, ok := columns[required]; !ok {
+			return nil, false
+		}
+	}
+	return columns, true
+}
+
+func parseMapped(rows [][]string, columns map[column]int) ([]track.Track, error) {
+	tracks := make([]track.Track, 0, len(rows))
+	for i, record := range rows {
+		if isBlank(record) {
+			continue
+		}
+		tr, err := recordToTrack(record, columns)
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", i+2, err) // +2: header is line 1
+		}
+		tracks = append(tracks, tr)
+	}
+	return tracks, nil
+}
+
+func recordToTrack(record []string, columns map[column]int) (track.Track, error) {
+	field := func(c column) (string, bool) {
+		j, ok := columns[c]
+		if !ok || j >= len(record) {
+			return "", false
+		}
+		return strings.TrimSpace(record[j]), true
+	}
+
+	title, _ := field(colTitle)
+	artist, _ := field(colArtist)
+
+	bpmStr, _ := field(colBPM)
+	bpm, err := strconv.ParseFloat(bpmStr, 64)
+	if err != nil {
+		return track.Track{}, fmt.Errorf("invalid bpm %q: %w", bpmStr, err)
+	}
+
+	energyStr, _ := field(colEnergy)
+	energy, err := parseScale(energyStr)
+	if err != nil {
+		return track.Track{}, fmt.Errorf("invalid energy: %w", err)
+	}
+
+	keyStr, _ := field(colKey)
+	key, err := track.ParseKey(keyStr)
+	if err != nil {
+		return track.Track{}, err
+	}
+
+	tr := track.Track{Title: title, Artist: artist, BPM: bpm, Energy: energy, Key: key}
+	tr.Danceability = optionalScale(field(colDanceability))
+	tr.Valence = optionalScale(field(colValence))
+	tr.Popularity = optionalScale(field(colPopularity))
+	tr.Acousticness = optionalScale(field(colAcousticness))
+	return tr, nil
+}
+
+// parseScale parses a required 0-100 integer signal.
+func parseScale(s string) (int, error) {
+	v, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return 0, err
+	}
+	if v < 0 || v > 100 {
+		return 0, fmt.Errorf("value out of range 0-100: %d", v)
+	}
+	return v, nil
+}
+
+// optionalScale parses an optional 0-100 signal, returning nil when the value is
+// absent or unparseable so scoring simply skips it.
+func optionalScale(s string, present bool) *int {
+	if !present || s == "" {
+		return nil
+	}
+	v, err := parseScale(s)
+	if err != nil {
+		return nil
+	}
+	return &v
+}
+
+func parsePositional(records [][]string) ([]track.Track, error) {
+	tracks := make([]track.Track, 0, len(records))
+	for i, record := range records {
+		if isBlank(record) {
 			continue
 		}
 		if len(record) < 5 {
-			return nil, fmt.Errorf("line %d: expected 5 columns but got %d", line, len(record))
+			return nil, fmt.Errorf("line %d: expected 5 columns but got %d", i+1, len(record))
 		}
-
-		if line == 1 {
-			if !looksLikeData(record) {
-				header = true
-				continue
-			}
+		if i == 0 && !looksLikeData(record) {
+			continue // legacy header row
 		}
-
-		if header && line == 1 {
-			continue
-		}
-
-		track, err := parseRecord(record)
+		tr, err := parseRecord(record)
 		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", line, err)
+			return nil, fmt.Errorf("line %d: %w", i+1, err)
 		}
-		tracks = append(tracks, track)
+		tracks = append(tracks, tr)
 	}
-
 	return tracks, nil
+}
+
+func isBlank(record []string) bool {
+	for _, field := range record {
+		if strings.TrimSpace(field) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // Save writes ordered tracks to disk, creating directories as needed.

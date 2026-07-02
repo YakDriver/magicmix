@@ -44,6 +44,73 @@ func TestLoadWithoutHeader(t *testing.T) {
 	}
 }
 
+func TestLoadExtendedColumns(t *testing.T) {
+	// Mirrors the 4bbqpaa.csv layout: extra/unknown columns, punctuation in
+	// headers ("POP."), and a column order different from the legacy layout.
+	data := "#,TITLE,ARTIST,RELEASE,ADDED,BPM,ENERGY,DANCE,LOUD,VALENCE,LENGTH,ACOUSTIC,POP.,A.SEP,RND,Key\n" +
+		"174,hate that i made you love me,Ariana Grande,2026-05-29,2026-07-02,96,45,63,-8,45,3:17,69,100,150,9894,3A\n"
+
+	path := writeTempFile(t, data)
+	tracks, err := csvio.Load(context.Background(), path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("Load returned %d tracks, want 1", len(tracks))
+	}
+
+	got := tracks[0]
+	if got.Title != "hate that i made you love me" || got.Artist != "Ariana Grande" {
+		t.Fatalf("unexpected identity: %+v", got)
+	}
+	if got.BPM != 96 || got.Energy != 45 || got.Key != (track.Key{Number: 3, Mode: track.ModeA}) {
+		t.Fatalf("unexpected core signals: %+v", got)
+	}
+	assertSignal(t, "danceability", got.Danceability, 63)
+	assertSignal(t, "valence", got.Valence, 45)
+	assertSignal(t, "acousticness", got.Acousticness, 69)
+	assertSignal(t, "popularity", got.Popularity, 100)
+}
+
+func TestLoadOptionalSignalsAbsent(t *testing.T) {
+	// Only the core columns are present; extended signals must be nil.
+	data := "Title,Artist,BPM,Energy,Key\n" +
+		"Song A,Artist,120,50,1A\n"
+
+	path := writeTempFile(t, data)
+	tracks, err := csvio.Load(context.Background(), path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	got := tracks[0]
+	if got.Danceability != nil || got.Valence != nil || got.Popularity != nil || got.Acousticness != nil {
+		t.Fatalf("expected nil optional signals, got %+v", got)
+	}
+}
+
+func TestLoadMissingCoreColumnFallsBackToPositional(t *testing.T) {
+	// No recognizable header (energy/key missing by name) and the first row is
+	// not valid positional data, so parsing should fail clearly rather than
+	// silently mangling data.
+	data := "Title,Artist,Tempo\n" +
+		"Song A,Artist,120\n"
+
+	path := writeTempFile(t, data)
+	if _, err := csvio.Load(context.Background(), path); err == nil {
+		t.Fatal("expected error for file lacking core columns, got nil")
+	}
+}
+
+func assertSignal(t *testing.T, name string, got *int, want int) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("%s: expected %d, got nil", name, want)
+	}
+	if *got != want {
+		t.Fatalf("%s: expected %d, got %d", name, want, *got)
+	}
+}
+
 func TestSave(t *testing.T) {
 	t.Helper()
 
