@@ -1,41 +1,47 @@
 # Repository Guidelines
 
-## Purpose
-Given an input list of tracks, magicmix creates an optimal output list. What "optimal" means depends on the stategy. "Optimal" relates to the ordering of output tracks, where there is a transition from a track to the next in the list. Transitions are described with N#L#, where N and L relate to Camelot keys, N=number (1-12) and L=letter (A or B). For example, 1A to 1A is a N0L0 transition; 3A to 4B is N1L1, 5B to 3A is N-2L1. The keys wrap so 12B to 1B is N1L0 and 11A to 1A is N2L0.
+## What magicmix does
+Given a CSV of tracks, magicmix orders them into a smooth, intentional set and drops
+songs that don't fit. Ordering quality is defined by **one** scoring model in
+`internal/strategy/score.go`; the `flow` strategy minimizes exactly that score, so
+"what we optimize" and "what `--score` reports" never drift apart. Don't add
+per-strategy scorers — change scoring in `score.go`.
 
-For the default strategy, the optimal ordering preserves:
-1. Mixing in key:
-    - Good: N0L0, N1L0, N2L0, N0L1
-    - Okay: N3L0, N4L0, N-1L0
-    - Bad: all other transitions are bad
-2. Incremental BPM changes: BPM should be optimized to change as little as possible from track to track givens the limitations of the set of BPMs of the tracks.
-3. Energy increase: Energy should increase from track to track except periodically dropping to then start increasing again.
-4. Too many of one transition in a row, even if good, become bad (e.g., 5 N1L0s in a row).
-5. For each run, magicmix should produce a different random optimal ordering of the input tracks.
+## Scoring model (source of truth)
+Lower is better; signals absent from the data are skipped.
 
-## Project Structure & Module Organization
-- `cmd/magicmix`: CLI entrypoint (`main.go`) wiring to the CLI package.
-- `internal/cli`: flag parsing, context wiring (`--limit`, `--seed`, `--timeout`).
-- `internal/strategy`: sorting strategies, planner, evaluation harness, and tests.
-- `internal/track`, `internal/csvio`: domain models and CSV IO helpers.
-- `internal/testdata`: shared fixtures (e.g., `realdata.csv`) for experimentation.
+- **Coherence** (pairwise, adjacent songs): harmonic Camelot compatibility +
+  octave-folded tempo, always on; valence (mood) and acousticness continuity when the
+  data has them.
+- **Contour** (global energy shape): intensity (energy blended with danceability)
+  should move in *waves* of ~18–30 min of playtime (falls back to a 6–10 track cadence
+  when `length` is absent). A **reset** — a drop that starts a new build — is free after
+  a real build; **jitter** (choppy oscillation) and **monotony** (one long ramp) are
+  penalized. The ending is **neutral**: don't reward "finish strong," which needs
+  payoff the data can't see.
 
-## Build, Test, and Development Commands
-- `make build`: compile the project (`go build ./...`).
-- `make test`: run the unit suite (`go test ./...`).
-- `make vet` / `make modern-check`: run `go vet` and the gopls modernize analyzer; `make ci` runs the full local check set.
-- `MAGICMIX_EVAL_SEED=12345 go test -run TestDefaultSorterRealDataEvaluation ./internal/strategy`: execute the 20-round real-data evaluation with a repeatable seed.
-- `go run ./cmd/magicmix --input input.csv --limit 20 --seed 9876`: ad-hoc CLI run with truncation and deterministic randomness.
-- Sandbox-only workaround: if the default Go caches are not writable (e.g. a restricted sandbox with a non-writable `$HOME`), prefix commands with `GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache` to redirect caches into the working directory, then `rm -rf` them afterward. This is not needed for normal local development, where Go's shared caches are preferred.
+## Layout
+- `cmd/magicmix` — CLI entrypoint.
+- `internal/cli` — flags and wiring (`--strategy`, `--seed`, `--limit`, `--keep-all`, `--score`).
+- `internal/strategy` — strategies (`flow` is primary; `default`/`eloise`/`constance` are legacy), the scoring model (`score.go`), and outlier detection (`outliers.go`).
+- `internal/track`, `internal/csvio` — domain model and header-aware CSV IO.
+- `internal/testdata` — fixtures.
 
-## Coding Style & Naming Conventions
-- Follow modern idiomatic Go
-- gofmt
+## Build, test, develop
+- `make build` / `make test` / `make ci` (build + test + vet + modernize) / `make lint` (golangci-lint).
+- Ad-hoc run: `go run ./cmd/magicmix --input input.csv --strategy flow --seed 9876`.
+- Sandbox-only: if `$HOME` caches aren't writable, prefix commands with
+  `GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache` and `rm -rf` them after. Not
+  needed for normal local development.
 
-## Testing Guidelines
-- Unit tests use Go’s `testing` package; place files as `*_test.go` next to the code (`internal/cli/cli_test.go`).
-- Prefer deterministic seeds for assertions (see `strategy.WithSeed`); random seeds only for exploratory runs.
-- Evaluation harness lives in `internal/strategy/eval_test.go`; repeat runs with `MAGICMIX_EVAL_SEED` when comparing changes.
+## Conventions
+- Modern idiomatic Go; gofmt; keep `make lint` clean (no dead code, no unchecked errors).
+- Tests sit beside code as `*_test.go`; prefer deterministic seeds (`strategy.WithSeed`).
+- Optional track signals are pointer fields (`*int`): `nil` means "absent." Scoring must
+  skip absent signals, never assume a value.
 
-## Additional Notes
-- Randomness: the default strategy reads `--seed`
+## Notes
+- Determinism: same `--seed` + same input → same output. (Per-seed variety is a planned
+  enhancement.)
+- Outliers: by default up to ~10% of poorly-fitting tracks are dropped and reported;
+  `--keep-all` forces everything in.

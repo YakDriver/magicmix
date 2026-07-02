@@ -1,46 +1,69 @@
 # magicmix
 
-`magicmix` is an experimental Go CLI for sequencing DJ tracklists. The initial release focuses on providing a flexible framework for importing tracks, applying pluggable ordering strategies, and exporting the result.
+`magicmix` sequences a tracklist into a smooth, intentional set: it orders songs so
+key, tempo, mood, and energy flow well — and drops the few that don't fit.
 
-## Status
-
-- CSV input with the columns `title,artist,bpm,energy,key`
-- Output written as a CSV next to the input file (use `--output` to override)
-- Default sorting strategy that balances Camelot key flow, incremental BPM adjustments, and cyclical energy ramps using heuristics
-- Strategy registry ready for future heuristic optimizations
-
-## Usage
+## Quick start
 
 ```bash
-# build the CLI
-GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go build ./...
+# order a playlist (writes tracks_magicmix.csv next to the input)
+go run ./cmd/magicmix --input tracks.csv --strategy flow
 
-# run against a csv file
-# run against a csv file (CLI prints the seed it used so you can rerun with --seed=<value>)
-./magicmix --input tracks.csv --output ordered.csv
-
-# inspect available strategies
-./magicmix --list-strategies
-
-# run 20-round evaluation against the real-data fixture with a repeatable seed
-MAGICMIX_EVAL_SEED=12345 go test -run TestDefaultSorterRealDataEvaluation ./internal/strategy
-
-# run tests
-GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go test ./...
+# score an existing ordering instead of sorting
+go run ./cmd/magicmix --input tracks.csv --score          # summary
+go run ./cmd/magicmix --input tracks.csv --score-verbose  # full breakdown
 ```
 
-Options:
+The run prints the seed it used (rerun with `--seed=<value>`) and lists any tracks it
+dropped.
 
-- `--input` (required) – path to the source CSV
-- `--output` – destination file; defaults to `<input>_magicmix.csv`
-- `--strategy` – sorting strategy name (default `default`)
-- `--list-strategies` – print registered strategies and exit
-- `--timeout` – optional processing timeout (e.g. `30s`)
-- `--limit` – maximum number of tracks to output (leave unset to keep all)
-- `--seed` – deterministic seed for pseudo-random decisions; omit or set to `0` for a time-based seed (the CLI logs the chosen seed so you can rerun with it)
+## Input CSV
 
-## Next Steps
+A header row is matched by name — case-insensitive, order and extra columns don't
+matter:
 
-- Tune heuristic weights with sample tracklists and automated evaluation
-- Add more strategies and comparison tooling
-- Expand input formats
+- **Required:** `title`, `artist`, `bpm`, `energy`, `key` (Camelot, e.g. `8B`)
+- **Optional, used when present:** `danceability`, `valence`, `popularity`,
+  `acousticness`, `length` (`m:ss`)
+
+Headerless files fall back to positional `title,artist,bpm,energy,key`.
+
+## Strategies
+
+`flow` is recommended — it treats ordering as a path-optimization problem and
+minimizes the exact score `--score` reports. `default`, `eloise`, and `constance` are
+earlier heuristics kept for comparison. See them with `--list-strategies`.
+
+## How it scores (lower is better)
+
+One adaptive model — signals you don't have are skipped:
+
+- **Coherence** — each song vs. the next: harmonic Camelot fit + tempo
+  (octave-folded, so 90↔180 BPM counts as close) + valence and acousticness when
+  available.
+- **Contour** — the whole set's energy shape: it should build in waves of ~20 minutes.
+  A *reset* (a deliberate drop that starts a new build) is free; jitter and one long
+  ramp are penalized. The ending is neutral.
+
+## Options
+
+| Flag | Purpose |
+| --- | --- |
+| `--input` | source CSV (required) |
+| `--output` | destination (default `<input>_magicmix.csv`) |
+| `--strategy` | ordering strategy — use `flow` |
+| `--keep-all` | keep every track (by default up to 10% of misfits are dropped and reported) |
+| `--limit` | cap how many tracks are written |
+| `--seed` | deterministic seed (`0`/omitted = time-based; printed so you can rerun) |
+| `--timeout` | processing timeout, e.g. `30s` |
+| `--score`, `--score-verbose` | score the input instead of sorting |
+| `--list-strategies` | print strategies and exit |
+
+## Develop
+
+```bash
+make build   # compile
+make test    # unit tests
+make ci      # build + test + vet + modernize
+make lint    # golangci-lint
+```
