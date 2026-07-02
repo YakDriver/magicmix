@@ -180,7 +180,7 @@ func (s *ConstanceSorter) Sort(ctx context.Context, tracks []track.Track) ([]tra
 	candidates := make([][]track.Track, 0, numCandidates)
 	scores := make([]int, 0, numCandidates)
 
-	for candidateNum := 0; candidateNum < numCandidates; candidateNum++ {
+	for candidateNum := range numCandidates {
 		// Use different seed for each candidate to get variety
 		candidateSeed := baseSeed + int64(candidateNum*1000)
 		candidateMix := s.generateSingleMix(tracks, candidateSeed, targetLimit)

@@ -638,12 +638,9 @@ func scoreEnergyDropWithContext(energyChange, trackPosition int, mixProgress flo
 		// Otherwise use base multiplier (1.0) for mid-ramp
 	}
 
-	finalPenalty := int(float64(basePenalty) * contextMultiplier)
-
-	// Ensure we don't go negative
-	if finalPenalty < 0 {
-		finalPenalty = 0
-	}
+	finalPenalty := max(
+		// Ensure we don't go negative
+		int(float64(basePenalty)*contextMultiplier), 0)
 
 	return finalPenalty
 }
