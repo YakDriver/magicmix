@@ -572,24 +572,6 @@ func scoreKeyEnergyProgression(keyEnergyChange, rawEnergyChange float64) int {
 	return 0
 }
 
-// scoreEnergyDrop penalizes harsh energy drops based on magnitude and context
-// Context-aware: early drops are worse, ramp-cycle drops are expected
-func scoreEnergyDrop(energyChange int) int {
-	if energyChange >= -5 {
-		return 0 // Tiny drop or increase - perfectly fine
-	} else if energyChange >= -12 {
-		return 0 // Small strategic drop (like 86→75) - normal DJ technique
-	} else if energyChange >= -20 {
-		return 2 // Moderate drop - noticeable but manageable
-	} else if energyChange >= -30 {
-		return 4 // Significant drop - requires skill to recover
-	} else if energyChange >= -40 {
-		return 8 // Major drop - harsh but sometimes intentional
-	} else {
-		return 15 // Catastrophic drop (43+ points) - dancefloor killer
-	}
-}
-
 // scoreEnergyDropWithContext penalizes energy drops based on magnitude, timing, and mix context
 // Early drops are heavily penalized, mid-mix drops are more acceptable for energy ramps
 func scoreEnergyDropWithContext(energyChange, trackPosition int, mixProgress float64) int {

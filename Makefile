@@ -1,4 +1,4 @@
-.PHONY: build test clean fmt vet tidy deps modern modern-check ci help
+.PHONY: build test clean fmt vet tidy deps lint modern modern-check ci help
 
 default: build
 
@@ -22,6 +22,9 @@ tidy: ## Tidy go.mod
 
 deps: ## Download dependencies
 	@go mod download
+
+lint: ## Run golangci-lint (includes the unused linter for dead code)
+	@golangci-lint run
 
 modern-check: ## Check for modern Go code
 	@echo "make: Checking for modern Go code..."

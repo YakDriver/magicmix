@@ -138,39 +138,6 @@ func calculateLimitAwareKeyDistribution(tracks []track.Track, targetLimit, alrea
 	}
 }
 
-// calculateKeyDistribution analyzes the current remaining tracks (legacy function for backward compatibility)
-func calculateKeyDistribution(tracks []track.Track) KeyDistribution {
-	total := len(tracks)
-	countByKey := make(map[int]int)
-	ratioByKey := make(map[int]float64)
-	burnRate := make(map[int]float64)
-
-	// Count tracks by key number
-	for _, t := range tracks {
-		countByKey[t.Key.Number]++
-	}
-
-	// Calculate ratios and burn rates
-	for keyNum, count := range countByKey {
-		ratio := float64(count) / float64(total)
-		ratioByKey[keyNum] = ratio
-
-		// Burn rate = how many tracks should ideally pass between uses
-		// High frequency keys (like 10A/10B with 29 tracks) should burn every ~5 tracks
-		// Low frequency keys (like 5A/5B with 4 tracks) should burn every ~40 tracks
-		if count > 0 {
-			burnRate[keyNum] = float64(total) / float64(count)
-		}
-	}
-
-	return KeyDistribution{
-		Total:      total,
-		CountByKey: countByKey,
-		RatioByKey: ratioByKey,
-		BurnRate:   burnRate,
-	}
-}
-
 // pickRandomFirst selects the first track randomly (no bias needed)
 func pickRandomFirst(tracks []track.Track, rng *rand.Rand) track.Track {
 	return tracks[rng.Intn(len(tracks))]
@@ -240,33 +207,34 @@ func scoreHarmonicCompatibility(fromKey, toKey track.Key) float64 {
 
 	// Apply harmonic compatibility scoring (EXTREME: ultra permissive)
 	var numberScore float64
-	switch {
-	case diff == 0:
+	switch diff {
+	case 0:
 		numberScore = 1.0 // Perfect match
-	case diff == 1 || diff == -1:
+	case 1, -1:
 		numberScore = 1.0 // Adjacent keys - excellent for mixing
-	case diff == 2 || diff == -2:
+	case 2, -2:
 		numberScore = 0.9 // Two steps - excellent (improved from 0.8)
-	case diff == 3 || diff == -3:
+	case 3, -3:
 		numberScore = 0.8 // Three steps - good (improved from 0.6)
-	case diff == 4 || diff == -4:
+	case 4, -4:
 		numberScore = 0.6 // Four steps - acceptable (improved from 0.3)
-	case diff == 5 || diff == -5:
+	case 5, -5:
 		numberScore = 0.4 // Five steps - neutral+ (improved from 0.0)
-	case diff == 6 || diff == -6:
+	case 6, -6:
 		numberScore = -0.2 // Tritone - only mildly poor (improved from -0.5)
 	}
 
 	// Mode change penalty (EXTREME: ultra lenient)
 	modeScore := 1.0
 	if fromKey.Mode != toKey.Mode {
-		if diff == 0 {
+		switch diff {
+		case 0:
 			modeScore = 0.98 // Same number, different mode - nearly perfect
-		} else if diff == 1 || diff == -1 {
+		case 1, -1:
 			modeScore = 0.95 // Adjacent with mode change - excellent
-		} else if diff == 2 || diff == -2 {
+		case 2, -2:
 			modeScore = 0.9 // Two steps with mode change - excellent
-		} else {
+		default:
 			modeScore = 0.85 // Other combinations with mode change - good
 		}
 	}

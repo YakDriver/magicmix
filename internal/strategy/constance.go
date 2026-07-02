@@ -576,7 +576,7 @@ func (s *ConstanceSorter) getEnergyAwareTrackFromBucket(buckets *ConstanceBucket
 	}
 
 	// Define energy constraints based on track position
-	minEnergyRequired := prev.Energy
+	var minEnergyRequired int
 	if trackPosition <= 4 {
 		// Tracks 2-4: no energy drops allowed, prefer increases
 		minEnergyRequired = prev.Energy
@@ -750,45 +750,6 @@ func (s *ConstanceSorter) getTargetKeysForTransition(from track.Key, transType T
 	}
 }
 
-// pickBestAvailableTrack picks the best track from any bucket when patterns fail
-func (s *ConstanceSorter) pickBestAvailableTrack(buckets *ConstanceBuckets, prev track.Track, energyState *EnergyRampState) (track.Track, bool) {
-	var bestKey track.Key
-	bestScore := -1000.0 // Very low starting score
-	found := false
-
-	// Look through all buckets for harmonically compatible tracks
-	for key, bucket := range buckets.buckets {
-		if len(bucket.Tracks) == 0 {
-			continue
-		}
-
-		// Score this key transition harmonically
-		harmonicScore := s.scoreHarmonicTransition(prev.Key, key)
-
-		// Find best track in this bucket
-		for _, t := range bucket.Tracks {
-			bpmScore := s.scoreBPMCompatibility(t.BPM, prev.BPM)
-			energyScore := s.scoreEnergyCompatibility(t.Energy, prev.Energy, energyState)
-
-			totalScore := harmonicScore*0.5 + bpmScore*0.3 + energyScore*0.2
-
-			if totalScore > bestScore {
-				bestScore = totalScore
-				bestKey = key
-				found = true
-			}
-		}
-	}
-
-	if !found {
-		return track.Track{}, false
-	}
-
-	// Remove the best track from its bucket
-	selectedTrack, _ := buckets.GetTrackFromBucket(bestKey, prev, energyState)
-	return selectedTrack, true
-}
-
 // scoreHarmonicTransition scores how good a key transition is harmonically
 func (s *ConstanceSorter) scoreHarmonicTransition(from, to track.Key) float64 {
 	numDiff := to.Number - from.Number
@@ -822,37 +783,4 @@ func (s *ConstanceSorter) scoreHarmonicTransition(from, to track.Key) float64 {
 
 	// Everything else gets lower scores
 	return math.Max(0.1, 0.8-float64(numDiff)*0.1)
-}
-
-// scoreBPMCompatibility scores BPM transitions
-func (s *ConstanceSorter) scoreBPMCompatibility(candidateBPM, prevBPM float64) float64 {
-	bpmDiff := math.Abs(candidateBPM - prevBPM)
-	return math.Max(0, 1.0-bpmDiff/20.0)
-}
-
-// scoreEnergyCompatibility scores energy transitions based on ramp state
-func (s *ConstanceSorter) scoreEnergyCompatibility(candidateEnergy, prevEnergy int, energyState *EnergyRampState) float64 {
-	energyDiff := candidateEnergy - prevEnergy
-
-	if energyState.isBuilding {
-		// We want energy to increase (or at least not decrease much)
-		if energyDiff > 0 {
-			return 1.0 // Perfect - energy increasing
-		} else if energyDiff >= -5 {
-			return 0.7 // OK - small decrease
-		} else {
-			return 0.3 // Poor - large decrease when we want to build
-		}
-	} else {
-		// We want energy to decrease for the drop
-		if energyDiff < -10 {
-			return 1.0 // Perfect - big energy drop
-		} else if energyDiff < 0 {
-			return 0.8 // Good - some energy drop
-		} else if energyDiff <= 5 {
-			return 0.5 // OK - stable energy
-		} else {
-			return 0.2 // Poor - energy increasing when we want a drop
-		}
-	}
 }

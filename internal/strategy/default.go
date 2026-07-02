@@ -318,24 +318,6 @@ func (p *mixPlanner) chooseStartIndex() int {
 	return candidates[p.rng.Intn(len(candidates))]
 }
 
-func (p *mixPlanner) startScore(candidate track.Track) float64 {
-	keyCount := float64(p.countsByNumber[candidate.Key.Number])
-	modeCount := float64(p.countsByKey[candidate.Key])
-
-	// Strongly favour starting where we have the deepest inventory so the early cycle can
-	// consume the largest clusters before we have to wrap.
-	freqScore := -keyCount * 6
-	if modeCount > 1 {
-		freqScore -= 1
-	}
-
-	energyTarget := p.stats.energyLow
-	energyDiff := math.Abs(float64(candidate.Energy) - energyTarget)
-	bpmDiff := math.Abs(candidate.BPM - p.stats.bpmMedian)
-
-	return freqScore + energyDiff*0.2 + bpmDiff*0.05
-}
-
 func (p *mixPlanner) startScoreWithinKey(candidate track.Track) float64 {
 	// Modified scoring function that doesn't heavily favor key frequency
 	// Instead focuses on energy and BPM characteristics for good mixing
@@ -1075,40 +1057,6 @@ func quantileFloats(values []float64, q float64) float64 {
 	}
 	fraction := position - float64(lower)
 	return values[lower] + (values[upper]-values[lower])*fraction
-}
-
-func compareTracks(a, b track.Track) int {
-	if a.Key.Number != b.Key.Number {
-		return a.Key.Number - b.Key.Number
-	}
-	if a.Key.Mode != b.Key.Mode {
-		if a.Key.Mode < b.Key.Mode {
-			return -1
-		}
-		return 1
-	}
-	if a.BPM != b.BPM {
-		if a.BPM < b.BPM {
-			return -1
-		}
-		return 1
-	}
-	if a.Energy != b.Energy {
-		return a.Energy - b.Energy
-	}
-	if a.Artist != b.Artist {
-		if a.Artist < b.Artist {
-			return -1
-		}
-		return 1
-	}
-	if a.Title != b.Title {
-		if a.Title < b.Title {
-			return -1
-		}
-		return 1
-	}
-	return 0
 }
 
 func closeFloat(a, b float64) bool {

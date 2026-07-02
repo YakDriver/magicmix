@@ -37,12 +37,10 @@ func run(ctx context.Context, args []string) error {
 	scoreVerbose := fs.Bool("score-verbose", false, "Include detailed scoring breakdown (implies --score)")
 
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage: %s [options]\n", fs.Name())
-		fmt.Fprintln(fs.Output(), "")
-		fmt.Fprintln(fs.Output(), "Options:")
+		w := fs.Output()
+		_, _ = fmt.Fprintf(w, "Usage: %s [options]\n\nOptions:\n", fs.Name())
 		fs.PrintDefaults()
-		fmt.Fprintln(fs.Output(), "")
-		fmt.Fprintf(fs.Output(), "Available strategies: %s\n", strings.Join(strategy.Names(), ", "))
+		_, _ = fmt.Fprintf(w, "\nAvailable strategies: %s\n", strings.Join(strategy.Names(), ", "))
 	}
 
 	if err := fs.Parse(args); err != nil {
