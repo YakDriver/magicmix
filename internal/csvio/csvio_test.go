@@ -70,6 +70,7 @@ func TestLoadExtendedColumns(t *testing.T) {
 	assertSignal(t, "valence", got.Valence, 45)
 	assertSignal(t, "acousticness", got.Acousticness, 69)
 	assertSignal(t, "popularity", got.Popularity, 100)
+	assertSignal(t, "duration", got.Duration, 197) // 3:17
 }
 
 func TestLoadOptionalSignalsAbsent(t *testing.T) {

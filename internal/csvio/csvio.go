@@ -61,6 +61,7 @@ const (
 	colValence
 	colPopularity
 	colAcousticness
+	colLength
 )
 
 // columnSynonyms maps normalized header names to canonical columns.
@@ -74,6 +75,7 @@ var columnSynonyms = map[string]column{
 	"valence": colValence, "mood": colValence,
 	"pop": colPopularity, "popularity": colPopularity,
 	"acoustic": colAcousticness, "acousticness": colAcousticness,
+	"length": colLength, "duration": colLength, "len": colLength,
 }
 
 // normalizeHeader lowercases and strips surrounding spaces and trailing dots so
@@ -151,7 +153,39 @@ func recordToTrack(record []string, columns map[column]int) (track.Track, error)
 	tr.Valence = optionalScale(field(colValence))
 	tr.Popularity = optionalScale(field(colPopularity))
 	tr.Acousticness = optionalScale(field(colAcousticness))
+	tr.Duration = optionalDuration(field(colLength))
 	return tr, nil
+}
+
+// parseDuration parses a track length such as "3:17" (m:ss) or "1:02:03" (h:mm:ss),
+// or a plain seconds count, into seconds.
+func parseDuration(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	parts := strings.Split(s, ":")
+	total := 0
+	for _, part := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		total = total*60 + n
+	}
+	return total, true
+}
+
+// optionalDuration parses an optional track length, returning nil when absent or
+// unparseable.
+func optionalDuration(s string, present bool) *int {
+	if !present {
+		return nil
+	}
+	if sec, ok := parseDuration(s); ok {
+		return &sec
+	}
+	return nil
 }
 
 // parseScale parses a required 0-100 integer signal.
@@ -237,6 +271,13 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 		hasPop = hasPop || t.Popularity != nil
 		hasAcoustic = hasAcoustic || t.Acousticness != nil
 	}
+	var hasLength bool
+	for _, t := range tracks {
+		if t.Duration != nil {
+			hasLength = true
+			break
+		}
+	}
 
 	header := []string{"Title", "Artist", "BPM", "Energy", "Key"}
 	if hasDance {
@@ -250,6 +291,9 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 	}
 	if hasAcoustic {
 		header = append(header, "Acousticness")
+	}
+	if hasLength {
+		header = append(header, "Length")
 	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("write header: %w", err)
@@ -275,6 +319,9 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 		if hasAcoustic {
 			row = append(row, optIntString(t.Acousticness))
 		}
+		if hasLength {
+			row = append(row, formatDuration(t.Duration))
+		}
 		if err := writer.Write(row); err != nil {
 			return fmt.Errorf("write row: %w", err)
 		}
@@ -290,6 +337,19 @@ func optIntString(p *int) string {
 		return ""
 	}
 	return strconv.Itoa(*p)
+}
+
+// formatDuration renders seconds as m:ss (or h:mm:ss), empty when absent.
+func formatDuration(p *int) string {
+	if p == nil {
+		return ""
+	}
+	sec := *p
+	h, m, s := sec/3600, (sec%3600)/60, sec%60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%d:%02d", m, s)
 }
 
 func looksLikeData(record []string) bool {

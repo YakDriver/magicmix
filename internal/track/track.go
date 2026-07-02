@@ -68,6 +68,7 @@ type Track struct {
 	Valence      *int // 0-100, higher = more positive/happy in mood
 	Popularity   *int // 0-100, higher = more popular
 	Acousticness *int // 0-100, higher = more acoustic
+	Duration     *int // track length in seconds
 }
 
 // Clone returns a copy useful for preserving the original slice whilst sorting.
@@ -84,6 +85,7 @@ func (t Track) Clone() Track {
 	clone.Valence = copyIntPtr(t.Valence)
 	clone.Popularity = copyIntPtr(t.Popularity)
 	clone.Acousticness = copyIntPtr(t.Acousticness)
+	clone.Duration = copyIntPtr(t.Duration)
 	return clone
 }
 

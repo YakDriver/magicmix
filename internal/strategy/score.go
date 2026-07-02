@@ -53,8 +53,11 @@ const (
 	contourStepHi     = 12.0
 	contourMinRunLen  = 3   // a build must span at least this many tracks to "qualify"
 	contourMinRunRise = 8.0 // ...and rise at least this much for its reset to be free
-	contourWaveLenLo  = 6.0 // target one wave per 6-10 tracks
+	contourWaveLenLo  = 6.0 // fallback (no durations): target one wave per 6-10 tracks
 	contourWaveLenHi  = 10.0
+
+	waveMinutesLo = 18.0 // target one wave per ~18-30 minutes of music when durations known
+	waveMinutesHi = 30.0
 
 	contourBigJumpDiv    = 15.0 // divisor for over-large upward leaps within a build
 	contourFlatPenalty   = 0.05 // near-flat step inside a build (mild anti-plateau)
@@ -142,7 +145,8 @@ func ScoreMixWith(tracks []track.Track, w Weights) MixScore {
 		details = append(details, d)
 	}
 
-	score.Contour = contourPenalty(intensities(tracks))
+	minResets, maxResets := waveResetBand(tracks)
+	score.Contour = contourPenalty(intensities(tracks), minResets, maxResets)
 	score.ContourTotal = w.Contour * score.Contour.RawPenalty
 
 	score.Transitions = len(details)
@@ -235,10 +239,10 @@ func acousticCost(a, b track.Track) float64 {
 
 // contourPenalty scores the global intensity shape. Builds (rising runs) should be
 // gradual; resets (drops beyond contourResetDrop) that follow a qualifying build are
-// free; jittery dips, over-large leaps, and a wave count outside the target band are
-// penalized. The ending is not scored.
-func contourPenalty(vals []float64) ContourStats {
-	stats := ContourStats{}
+// free; jittery dips, over-large leaps, and a reset count outside [minResets,
+// maxResets] (the target wave cadence) are penalized. The ending is not scored.
+func contourPenalty(vals []float64, minResets, maxResets int) ContourStats {
+	stats := ContourStats{TargetResetLo: minResets, TargetResetHi: maxResets}
 	n := len(vals)
 	if n < 3 {
 		return stats
@@ -276,15 +280,6 @@ func contourPenalty(vals []float64) ContourStats {
 		}
 	}
 
-	minResets := int(math.Round(float64(n)/contourWaveLenHi)) - 1
-	if minResets < 0 {
-		minResets = 0
-	}
-	maxResets := int(math.Round(float64(n)/contourWaveLenLo)) - 1
-	if maxResets < minResets {
-		maxResets = minResets
-	}
-
 	waveCountPenalty := 0.0
 	switch {
 	case resets < minResets:
@@ -295,13 +290,52 @@ func contourPenalty(vals []float64) ContourStats {
 
 	stats.Builds = resets + 1
 	stats.Resets = resets
-	stats.TargetResetLo = minResets
-	stats.TargetResetHi = maxResets
 	stats.SmoothnessPenalty = smoothness
 	stats.ResetPenalty = resetPenalty
 	stats.WaveCountPenalty = waveCountPenalty
 	stats.RawPenalty = smoothness + resetPenalty + waveCountPenalty
 	return stats
+}
+
+// waveResetBand returns the target [min,max] number of resets for a set. When most
+// tracks report a duration, the cadence is time-based (a wave every ~18-30 min);
+// otherwise it falls back to a track-count cadence (a wave every 6-10 tracks).
+func waveResetBand(tracks []track.Track) (minResets, maxResets int) {
+	n := len(tracks)
+	if n == 0 {
+		return 0, 0
+	}
+
+	var totalSec, have int
+	for _, t := range tracks {
+		if t.Duration != nil {
+			totalSec += *t.Duration
+			have++
+		}
+	}
+
+	var minWaves, maxWaves int
+	if have > n/2 && totalSec > 0 {
+		if have < n { // estimate missing durations from the average
+			totalSec += (totalSec / have) * (n - have)
+		}
+		totalMin := float64(totalSec) / 60.0
+		minWaves = int(math.Round(totalMin / waveMinutesHi)) // longest waves -> fewest
+		maxWaves = int(math.Round(totalMin / waveMinutesLo)) // shortest waves -> most
+	} else {
+		minWaves = int(math.Round(float64(n) / contourWaveLenHi))
+		maxWaves = int(math.Round(float64(n) / contourWaveLenLo))
+	}
+
+	minResets = minWaves - 1
+	if minResets < 0 {
+		minResets = 0
+	}
+	maxResets = maxWaves - 1
+	if maxResets < minResets {
+		maxResets = minResets
+	}
+	return minResets, maxResets
 }
 
 // intensity blends energy with danceability (when present) into the value the

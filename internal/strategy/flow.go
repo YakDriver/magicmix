@@ -67,21 +67,26 @@ func (s *FlowSorter) Sort(ctx context.Context, tracks []track.Track) ([]track.Tr
 // costMatrix caches pairwise coherence costs and the per-track intensity so the full
 // score (coherence + global contour) can be evaluated quickly for any permutation.
 type costMatrix struct {
-	n        int
-	m        []float64 // row-major pairwise coherence cost: from i to j at m[i*n+j]
-	intens   []float64 // per-track intensity, indexed by track id
-	contourW float64
-	buf      []float64 // reusable scratch for gathering intensities along a permutation
+	n         int
+	m         []float64 // row-major pairwise coherence cost: from i to j at m[i*n+j]
+	intens    []float64 // per-track intensity, indexed by track id
+	contourW  float64
+	minResets int // target wave cadence, invariant to ordering
+	maxResets int
+	buf       []float64 // reusable scratch for gathering intensities along a permutation
 }
 
 func buildCostMatrix(seq []track.Track, w Weights) *costMatrix {
 	n := len(seq)
+	minResets, maxResets := waveResetBand(seq)
 	cm := &costMatrix{
-		n:        n,
-		m:        make([]float64, n*n),
-		intens:   intensities(seq),
-		contourW: w.Contour,
-		buf:      make([]float64, n),
+		n:         n,
+		m:         make([]float64, n*n),
+		intens:    intensities(seq),
+		contourW:  w.Contour,
+		minResets: minResets,
+		maxResets: maxResets,
+		buf:       make([]float64, n),
 	}
 	for i := range seq {
 		for j := range seq {
@@ -105,7 +110,7 @@ func (cm *costMatrix) pathCost(perm []int) float64 {
 	for i, idx := range perm {
 		cm.buf[i] = cm.intens[idx]
 	}
-	total += cm.contourW * contourPenalty(cm.buf).RawPenalty
+	total += cm.contourW * contourPenalty(cm.buf, cm.minResets, cm.maxResets).RawPenalty
 	return total
 }
 
