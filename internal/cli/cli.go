@@ -31,9 +31,10 @@ func run(ctx context.Context, args []string) error {
 	strategyName := fs.String("strategy", "default", "Sorting strategy to apply")
 	listStrategies := fs.Bool("list-strategies", false, "List available strategies and exit")
 	limit := fs.Int("limit", 0, "Optional maximum number of tracks to write")
+	keepAll := fs.Bool("keep-all", false, "Keep every track; do not drop ones that don't fit the mix")
 	seedFlag := fs.Int64("seed", 0, "Optional seed for pseudo-random decisions (defaults to time-based)")
 	timeout := fs.Duration("timeout", 0, "Optional timeout for processing (e.g. 30s)")
-	scoreOnly := fs.Bool("score", false, "Score the key transitions in the input file (no sorting)")
+	scoreOnly := fs.Bool("score", false, "Score the transitions in the input file (no sorting)")
 	scoreVerbose := fs.Bool("score-verbose", false, "Include detailed scoring breakdown (implies --score)")
 
 	fs.Usage = func() {
@@ -107,6 +108,25 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	ordered := result.Ordered
+
+	if !*keepAll {
+		const maxDropFraction = 0.10
+		kept, dropped := strategy.TrimOutliers(ordered, maxDropFraction)
+		if len(dropped) > 0 {
+			// Re-optimize the kept tracks so the final sequence is clean.
+			if reordered, rerr := strategy.Sort(ctx, sorter, kept); rerr == nil {
+				ordered = reordered.Ordered
+			} else {
+				ordered = kept
+			}
+			fmt.Printf("Dropped %d of %d track(s) that didn't fit (use --keep-all to force all in):\n",
+				len(dropped), len(dropped)+len(ordered))
+			for _, d := range dropped {
+				fmt.Printf("  - %q by %s (roughness %.2f)\n", d.Track.Title, d.Track.Artist, d.MarginalCost)
+			}
+		}
+	}
+
 	if *limit > 0 && *limit < len(ordered) {
 		ordered = ordered[:*limit]
 		fmt.Printf("Applying limit %d; writing first %d tracks\n", *limit, len(ordered))
@@ -139,147 +159,54 @@ func runScoring(inputPath string, verbose bool) error {
 		return nil
 	}
 
-	mixScore := strategy.ScoreMix(tracks)
-	keyScore := mixScore.KeyScore
+	score := strategy.ScoreMix(tracks)
 
-	// Always show summary
 	fmt.Printf("=== MIX QUALITY SCORING for %s ===\n", inputPath)
-	fmt.Printf("Total Score: %d (0 = perfect)\n", mixScore.Total)
-	fmt.Printf("\nKey Transition Score: %d\n", keyScore.Total)
-	fmt.Printf("  Mode & Number Changes: %d points\n", keyScore.ModeAndNumberPts)
-	fmt.Printf("  Number Change Penalties: %d points\n", keyScore.NumberChangePts)
-	fmt.Printf("  Run Penalties: %d points\n", keyScore.RunPenaltyPts)
+	fmt.Printf("Total: %.2f (0 = perfect) | per track: %.3f | transitions: %d\n",
+		score.Total, score.PerTrack, score.Transitions)
+	fmt.Printf("Active signals: %s\n", strings.Join(score.ActiveSignals, ", "))
 
-	// Show BPM scoring if available
-	if mixScore.BPMScore != nil {
-		bpmScore := *mixScore.BPMScore
-		fmt.Printf("\nBPM Transition Score: %d\n", bpmScore.Total)
-		fmt.Printf("  BPM Change Penalties: %d points\n", bpmScore.TransitionPts)
-		fmt.Printf("  Cross-Genre Penalties: %d points\n", bpmScore.RangePenaltyPts)
-		fmt.Printf("  Tempo Shock Penalties: %d points\n", bpmScore.TempoShockPts)
+	fmt.Printf("\nCoherence (adjacent-song fit):\n")
+	fmt.Printf("  Harmonic (key): %8.2f\n", score.HarmonicTotal)
+	fmt.Printf("  Tempo (BPM):    %8.2f\n", score.TempoTotal)
+	if score.ValenceTotal > 0 {
+		fmt.Printf("  Valence (mood): %8.2f\n", score.ValenceTotal)
+	}
+	if score.AcousticTotal > 0 {
+		fmt.Printf("  Acousticness:   %8.2f\n", score.AcousticTotal)
 	}
 
-	// Show Energy scoring if available
-	if mixScore.EnergyScore != nil {
-		energyScore := *mixScore.EnergyScore
-		fmt.Printf("\nEnergy Flow Score: %d\n", energyScore.Total)
-		fmt.Printf("  Energy Flow Penalties: %d points\n", energyScore.EnergyFlowPts)
-		fmt.Printf("  Key Progression Penalties: %d points\n", energyScore.KeyProgressionPts)
-		fmt.Printf("  Energy Drop Penalties: %d points\n", energyScore.EnergyDropPts)
-		fmt.Printf("  Plateau Penalties: %d points\n", energyScore.PlateauPts)
-	}
+	c := score.Contour
+	fmt.Printf("\nContour (energy shape): %8.2f\n", score.ContourTotal)
+	fmt.Printf("  Waves: %d | resets: %d (target %d-%d)\n", c.Builds, c.Resets, c.TargetResetLo, c.TargetResetHi)
+	fmt.Printf("  Build smoothness: %.2f | jitter resets: %.2f | wave-count: %.2f\n",
+		c.SmoothnessPenalty, c.ResetPenalty, c.WaveCountPenalty)
 
-	fmt.Printf("Total tracks: %d\n", len(tracks))
-
-	if mixScore.Total > 0 {
-		fmt.Printf("Average penalty per track: %.2f\n", float64(mixScore.Total)/float64(len(tracks)))
-	}
-
-	// Show detailed breakdown if verbose
-	if verbose && len(keyScore.TransitionDetails) > 0 {
-		fmt.Printf("\nDetailed Key Transitions:\n")
-		for i, detail := range keyScore.TransitionDetails {
-			totalPts := detail.ModeAndNumberPts + detail.NumberChangePts + detail.RunPenaltyPts
-			if totalPts > 0 {
-				fmt.Printf("  Track %d->%d: %s->%s (%d pts) - %s",
-					i+1, i+2, detail.FromKey, detail.ToKey, totalPts, detail.Description)
-				if detail.RunLength > 0 {
-					fmt.Printf(" [run of %d]", detail.RunLength)
-				}
-				fmt.Println()
-			}
+	if len(score.Worst) > 0 {
+		limit := 5
+		if verbose {
+			limit = len(score.Worst)
 		}
-
-		// Show BPM details if available
-		if mixScore.BPMScore != nil && len(mixScore.BPMScore.TransitionDetails) > 0 {
-			fmt.Printf("\nDetailed BPM Transitions:\n")
-			for i, detail := range mixScore.BPMScore.TransitionDetails {
-				totalPts := detail.TransitionPts + detail.RangePenaltyPts + detail.TempoShockPts
-				if totalPts > 0 {
-					fmt.Printf("  Track %d->%d: %.1f->%.1f BPM (%d pts) - %s\n",
-						i+1, i+2, detail.FromBPM, detail.ToBPM, totalPts, detail.Description)
-				}
+		fmt.Printf("\nRoughest adjacent transitions:\n")
+		for i, d := range score.Worst {
+			if i >= limit || d.Pairwise <= 0 {
+				break
 			}
-		}
-
-		// Show Energy details if available
-		if mixScore.EnergyScore != nil && len(mixScore.EnergyScore.TransitionDetails) > 0 {
-			fmt.Printf("\nDetailed Energy Transitions:\n")
-			for i, detail := range mixScore.EnergyScore.TransitionDetails {
-				totalPts := detail.EnergyFlowPts + detail.KeyProgressionPts + detail.EnergyDropPts
-				if totalPts > 0 {
-					fmt.Printf("  Track %d->%d: %d->%d energy (%d pts) - %s\n",
-						i+1, i+2, detail.FromEnergy, detail.ToEnergy, totalPts, detail.Description)
-				}
-			}
-		}
-	} else if mixScore.Total > 0 {
-		// Show just the worst offenders in non-verbose mode
-		fmt.Printf("\nWorst transitions (penalty >= 2):\n")
-
-		// Key transitions
-		count := 0
-		for i, detail := range keyScore.TransitionDetails {
-			totalPts := detail.ModeAndNumberPts + detail.NumberChangePts + detail.RunPenaltyPts
-			if totalPts >= 2 {
-				fmt.Printf("  Track %d->%d: %s->%s (%d pts) - %s",
-					i+1, i+2, detail.FromKey, detail.ToKey, totalPts, detail.Description)
-				if detail.RunLength > 0 {
-					fmt.Printf(" [run of %d]", detail.RunLength)
-				}
-				fmt.Println()
-				count++
-				if count >= 5 { // Limit key transitions to 5 to make room for BPM/Energy
-					break
-				}
-			}
-		}
-
-		// BPM transitions (worst few)
-		if mixScore.BPMScore != nil {
-			bpmCount := 0
-			for i, detail := range mixScore.BPMScore.TransitionDetails {
-				totalPts := detail.TransitionPts + detail.RangePenaltyPts + detail.TempoShockPts
-				if totalPts >= 2 && bpmCount < 3 {
-					fmt.Printf("  Track %d->%d: %.1f->%.1f BPM (%d pts) - %s\n",
-						i+1, i+2, detail.FromBPM, detail.ToBPM, totalPts, detail.Description)
-					bpmCount++
-				}
-			}
-		}
-
-		// Energy transitions (worst few)
-		if mixScore.EnergyScore != nil {
-			energyCount := 0
-			for i, detail := range mixScore.EnergyScore.TransitionDetails {
-				totalPts := detail.EnergyFlowPts + detail.KeyProgressionPts + detail.EnergyDropPts
-				if totalPts >= 2 && energyCount < 3 {
-					fmt.Printf("  Track %d->%d: %d->%d energy (%d pts) - %s\n",
-						i+1, i+2, detail.FromEnergy, detail.ToEnergy, totalPts, detail.Description)
-					energyCount++
-				}
-			}
-		}
-
-		if count >= 5 {
-			remaining := countTransitionsWithScore(keyScore.TransitionDetails, 2) - count
-			if remaining > 0 {
-				fmt.Printf("  ... (%d more transitions not shown, use --score-verbose for full details)\n", remaining)
-			}
+			fmt.Printf("  #%d %s (%s) -> %s (%s): %.2f [key %.2f tempo %.2f mood %.2f acoustic %.2f]\n",
+				d.Index+1, truncate(d.FromTitle, 24), d.FromKey, truncate(d.ToTitle, 24), d.ToKey,
+				d.Pairwise, d.Harmonic, d.Tempo, d.Valence, d.Acoustic)
 		}
 	}
 
 	return nil
 }
 
-func countTransitionsWithScore(details []strategy.KeyTransitionDetail, minScore int) int {
-	count := 0
-	for _, detail := range details {
-		if detail.ModeAndNumberPts+detail.NumberChangePts+detail.RunPenaltyPts >= minScore {
-			count++
-		}
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
 	}
-	return count
+	return string(r[:n-1]) + "…"
 }
 
 func deriveOutputPath(input string) string {

@@ -1,4 +1,4 @@
-.PHONY: build test clean fmt vet tidy deps lint modern modern-check ci help
+.PHONY: build install test clean fmt vet tidy deps lint modern modern-check ci help
 
 default: build
 
@@ -7,6 +7,9 @@ help: ## Show this help
 
 build: ## Build tool
 	@go build ./...
+
+install: ## Install the magicmix binary to $GOBIN
+	@go install ./cmd/magicmix
 
 test: ## Run tests
 	@go test ./...

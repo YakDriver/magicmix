@@ -52,21 +52,49 @@ func (k Key) String() string {
 }
 
 // Track describes a single audio track row read from input.
+//
+// Title, Artist, BPM, Energy, and Key are the core signals every strategy relies
+// on. The remaining fields are optional extended signals: a nil pointer means the
+// source data did not provide that signal, and scoring should skip it rather than
+// assume a value.
 type Track struct {
 	Title  string
 	Artist string
 	BPM    float64
 	Energy int
 	Key    Key
+
+	Danceability *int // 0-100, higher = more danceable
+	Valence      *int // 0-100, higher = more positive/happy in mood
+	Popularity   *int // 0-100, higher = more popular
+	Acousticness *int // 0-100, higher = more acoustic
+	Duration     *int // track length in seconds
+	Year         *int // release year (e.g. 2024)
 }
 
-// Clone returns a shallow copy useful for preserving the original slice whilst sorting.
+// Clone returns a copy useful for preserving the original slice whilst sorting.
+// Optional signal pointers are deep-copied so callers never alias the originals.
 func (t Track) Clone() Track {
-	return Track{
+	clone := Track{
 		Title:  t.Title,
 		Artist: t.Artist,
 		BPM:    t.BPM,
 		Energy: t.Energy,
 		Key:    t.Key,
 	}
+	clone.Danceability = copyIntPtr(t.Danceability)
+	clone.Valence = copyIntPtr(t.Valence)
+	clone.Popularity = copyIntPtr(t.Popularity)
+	clone.Acousticness = copyIntPtr(t.Acousticness)
+	clone.Duration = copyIntPtr(t.Duration)
+	clone.Year = copyIntPtr(t.Year)
+	return clone
+}
+
+func copyIntPtr(p *int) *int {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
