@@ -78,7 +78,7 @@ func writeTempFile(t *testing.T, data string) string {
 		t.Fatalf("CreateTemp: %v", err)
 	}
 	if _, err := file.WriteString(data); err != nil {
-		file.Close()
+		_ = file.Close()
 		t.Fatalf("WriteString: %v", err)
 	}
 	if err := file.Close(); err != nil {

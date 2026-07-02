@@ -63,7 +63,7 @@ func writeCSV(t *testing.T, path string, rows [][]string) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	writer := csv.NewWriter(file)
 	if err := writer.WriteAll(rows); err != nil {
@@ -77,7 +77,7 @@ func readCSV(t *testing.T, path string) [][]string {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	reader := csv.NewReader(file)
 	data, err := reader.ReadAll()

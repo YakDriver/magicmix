@@ -23,10 +23,13 @@ jobs:
         check-latest: true
 
     - name: Build
-      run: go build -v ./...
+      run: make build
 
     - name: Test
-      run: go test -v ./...
+      run: make test
+
+    - name: Vet
+      run: make vet
 
     - name: Modernize Analysis
-      run: go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -test ./...
+      run: make modern-check

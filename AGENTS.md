@@ -21,11 +21,12 @@ For the default strategy, the optimal ordering preserves:
 - `internal/testdata`: shared fixtures (e.g., `realdata.csv`) for experimentation.
 
 ## Build, Test, and Development Commands
-- `GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go build ./...`: compile with local caches to avoid sandbox issues.
-- `GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go test ./...`: run the unit suite.
-- Caches: `.gocache` and `.gomodcache` are intentionally local—clean them (`rm -rf`) after build/test runs.
+- `make build`: compile the project (`go build ./...`).
+- `make test`: run the unit suite (`go test ./...`).
+- `make vet` / `make modern-check`: run `go vet` and the gopls modernize analyzer; `make ci` runs the full local check set.
 - `MAGICMIX_EVAL_SEED=12345 go test -run TestDefaultSorterRealDataEvaluation ./internal/strategy`: execute the 20-round real-data evaluation with a repeatable seed.
 - `go run ./cmd/magicmix --input input.csv --limit 20 --seed 9876`: ad-hoc CLI run with truncation and deterministic randomness.
+- Sandbox-only workaround: if the default Go caches are not writable (e.g. a restricted sandbox with a non-writable `$HOME`), prefix commands with `GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache` to redirect caches into the working directory, then `rm -rf` them afterward. This is not needed for normal local development, where Go's shared caches are preferred.
 
 ## Coding Style & Naming Conventions
 - Follow modern idiomatic Go

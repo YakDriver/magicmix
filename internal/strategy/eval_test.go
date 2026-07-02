@@ -33,7 +33,6 @@ func TestDefaultSorterRealDataEvaluation(t *testing.T) {
 
 	const rounds = 20
 
-	totals := make([]float64, 0, rounds)
 	var agg evaluationSummary
 
 	for round := range rounds {
@@ -49,7 +48,6 @@ func TestDefaultSorterRealDataEvaluation(t *testing.T) {
 		}
 
 		score := evaluateSequence(ordered)
-		totals = append(totals, score.Total)
 		agg.add(score)
 
 		t.Logf("round %02d size=%2d score=%.2f key=%.2f bpm=%.2f energy=%.2f wraps=%d jumps=%d invalid=%d",
@@ -95,7 +93,7 @@ func loadRealData(tb testing.TB) []track.Track {
 	if err != nil {
 		tb.Fatalf("real data fixture missing: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	reader := csv.NewReader(file)
 	reader.TrimLeadingSpace = true
@@ -274,20 +272,20 @@ func evaluateSequence(tracks []track.Track) evaluationScore {
 		modeChange := prev.Key.Mode != next.Key.Mode
 
 		// Key penalties
-		switch {
-		case diff == 0:
+		switch diff {
+		case 0:
 			score.KeyPenalty += 3
-		case diff == 1:
+		case 1:
 			if modeChange {
 				score.KeyPenalty += 4
 				score.InvalidTransitions++
 			}
-		case diff == 2:
+		case 2:
 			if modeChange {
 				score.KeyPenalty += 6
 				score.InvalidTransitions++
 			}
-		case diff == 3:
+		case 3:
 			score.KeyPenalty += 4
 			score.BigJumpCount++
 			if modeChange {

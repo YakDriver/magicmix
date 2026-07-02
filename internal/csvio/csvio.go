@@ -19,7 +19,7 @@ func Load(ctx context.Context, path string) ([]track.Track, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open input: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	reader := csv.NewReader(file)
 	reader.TrimLeadingSpace = true
@@ -74,7 +74,7 @@ func Load(ctx context.Context, path string) ([]track.Track, error) {
 }
 
 // Save writes ordered tracks to disk, creating directories as needed.
-func Save(_ context.Context, path string, tracks []track.Track) error {
+func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
@@ -83,7 +83,11 @@ func Save(_ context.Context, path string, tracks []track.Track) error {
 	if err != nil {
 		return fmt.Errorf("create output: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close output: %w", cerr)
+		}
+	}()
 
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
