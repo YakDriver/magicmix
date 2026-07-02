@@ -260,6 +260,8 @@ func (p *mixPlanner) chooseStartIndex() int {
 			balancedKeys = append(balancedKeys, keyNum)
 		}
 	}
+	sort.Ints(overrepresentedKeys)
+	sort.Ints(balancedKeys)
 
 	// Prefer starting with overrepresented keys 70% of the time to burn them down early
 	var selectedKeyNum int
@@ -275,13 +277,18 @@ func (p *mixPlanner) chooseStartIndex() int {
 				eligibleKeys = append(eligibleKeys, keyNum)
 			}
 		}
+		sort.Ints(eligibleKeys)
 		if len(eligibleKeys) > 0 {
 			selectedKeyNum = eligibleKeys[p.rng.Intn(len(eligibleKeys))]
 		} else {
-			// Last resort: any key
+			// Last resort: lowest-numbered key for deterministic selection
+			keys := make([]int, 0, len(keyGroups))
 			for keyNum := range keyGroups {
-				selectedKeyNum = keyNum
-				break
+				keys = append(keys, keyNum)
+			}
+			sort.Ints(keys)
+			if len(keys) > 0 {
+				selectedKeyNum = keys[0]
 			}
 		}
 	}

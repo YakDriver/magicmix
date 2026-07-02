@@ -176,7 +176,7 @@ func ScoreKeyTransitions(tracks []track.Track) KeyScore {
 // In DJ mixing, changing both makes transitions much harder to execute smoothly
 func scoreModeAndNumberChange(from, to track.Key) int {
 	if from.Mode != to.Mode && from.Number != to.Number {
-		return 3 // Challenging but manageable for changing both A/B and number
+		return 5 // Challenging but manageable for changing both A/B and number
 	}
 	return 0
 }
@@ -204,15 +204,15 @@ func scoreKeyNumberChange(from, to track.Key) int {
 	case 2, -2:
 		return 1 // Two steps - acceptable but requires skill
 	case 3, -3:
-		return 2 // Three steps - manageable with technique, still mixable
+		return 3 // Three steps - manageable with technique, still mixable
 	case 4, -4:
-		return 4 // Four steps - difficult but achievable
+		return 6 // Four steps - difficult but achievable
 	case 5, -5:
-		return 7 // Five steps - very challenging, noticeable dissonance
+		return 8 // Five steps - very challenging, noticeable dissonance
 	case 6, -6:
-		return 12 // Tritone - harmonically catastrophic, should be avoided
+		return 10 // Tritone - harmonically catastrophic, should be avoided
 	default:
-		return 12 // Safety net for any edge cases
+		return 10 // Safety net for any edge cases
 	}
 }
 
