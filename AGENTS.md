@@ -23,7 +23,6 @@ For the default strategy, the optimal ordering preserves:
 ## Build, Test, and Development Commands
 - `GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go build ./...`: compile with local caches to avoid sandbox issues.
 - `GOCACHE=$(pwd)/.gocache GOMODCACHE=$(pwd)/.gomodcache go test ./...`: run the unit suite.
-- Caches: `.gocache` and `.gomodcache` are intentionally local—clean them (`rm -rf`) after build/test runs.
 - `MAGICMIX_EVAL_SEED=12345 go test -run TestDefaultSorterRealDataEvaluation ./internal/strategy`: execute the 20-round real-data evaluation with a repeatable seed.
 - `go run ./cmd/magicmix --input input.csv --limit 20 --seed 9876`: ad-hoc CLI run with truncation and deterministic randomness.
 
