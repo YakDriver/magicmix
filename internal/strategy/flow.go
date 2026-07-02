@@ -172,7 +172,7 @@ func (cm *costMatrix) localSearch(ctx context.Context, perm []int) ([]int, error
 	cost := cm.pathCost(perm)
 	scratch := make([]int, len(perm))
 
-	for pass := 0; pass < maxLocalSearchPasses; pass++ {
+	for range maxLocalSearchPasses {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}

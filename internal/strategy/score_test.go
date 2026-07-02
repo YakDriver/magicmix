@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/YakDriver/magicmix/internal/track"
@@ -118,10 +119,5 @@ func TestScoreAdaptsToAvailableSignals(t *testing.T) {
 }
 
 func containsSignal(signals []string, want string) bool {
-	for _, s := range signals {
-		if s == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(signals, want)
 }

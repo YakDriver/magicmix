@@ -242,7 +242,7 @@ func pickCombo(pool []track.Track, tagger func(track.Track) map[string]string, s
 	}
 	sort.Strings(sigNames) // deterministic base order before the seeded shuffle
 
-	for attempt := 0; attempt < chaveComboRetries; attempt++ {
+	for range chaveComboRetries {
 		rng.Shuffle(len(sigNames), func(i, j int) { sigNames[i], sigNames[j] = sigNames[j], sigNames[i] })
 
 		var combo []string
@@ -288,8 +288,8 @@ func comboMatches(tags map[string]string, combo []string) bool {
 }
 
 func signalOf(tag string) string {
-	if i := strings.IndexByte(tag, ':'); i >= 0 {
-		return tag[:i]
+	if before, _, ok := strings.Cut(tag, ":"); ok {
+		return before
 	}
 	return tag
 }

@@ -343,14 +343,8 @@ func waveResetBand(tracks []track.Track) (minResets, maxResets int) {
 		maxWaves = int(math.Round(float64(n) / contourWaveLenLo))
 	}
 
-	minResets = minWaves - 1
-	if minResets < 0 {
-		minResets = 0
-	}
-	maxResets = maxWaves - 1
-	if maxResets < minResets {
-		maxResets = minResets
-	}
+	minResets = max(minWaves-1, 0)
+	maxResets = max(maxWaves-1, minResets)
 	return minResets, maxResets
 }
 
