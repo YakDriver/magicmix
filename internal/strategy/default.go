@@ -93,6 +93,7 @@ type mixPlanner struct {
 	desiredCycleLength int
 	countsByKey        map[track.Key]int
 	countsByNumber     map[int]int
+	targetIntervals    map[int]float64 // Target spacing for each key number
 	rng                *rand.Rand
 	totalTracks        int
 	targetCount        int
@@ -116,10 +117,12 @@ type mixState struct {
 	desiredCycleLen      int
 	stats                mixStats
 	sameNumberStreak     int
+	keyNumberRunLength   int // New: tracks consecutive tracks with same key number (7A->7B->7A counts as 3)
 	stepsSinceStep1      int
 	stepsSinceStep2      int
 	stepsSinceLetterFlip int
 	stepsSinceEnergyDrop int
+	stepsSinceKeyNumber  map[int]int // How many tracks since we last used each key number
 }
 
 type transition struct {
@@ -143,6 +146,17 @@ func newMixPlanner(ctx context.Context, tracks []track.Track, targetCount int) *
 		countsByNumber[t.Key.Number]++
 	}
 
+	// Calculate target intervals for optimal distribution
+	targetIntervals := make(map[int]float64)
+	totalTracks := float64(len(tracks))
+	for keyNum, count := range countsByNumber {
+		if count > 0 {
+			// Target interval = total tracks / count of this key
+			// e.g., 158 tracks with 29 10A/10B = every 5.4 tracks
+			targetIntervals[keyNum] = totalTracks / float64(count)
+		}
+	}
+
 	desired := idealCycleLength(len(remaining))
 
 	seed, ok := seedFromContext(ctx)
@@ -157,6 +171,7 @@ func newMixPlanner(ctx context.Context, tracks []track.Track, targetCount int) *
 		desiredCycleLength: desired,
 		countsByKey:        countsByKey,
 		countsByNumber:     countsByNumber,
+		targetIntervals:    targetIntervals,
 		rng:                rng,
 		totalTracks:        len(tracks),
 		targetCount:        targetCount,
@@ -198,6 +213,14 @@ func idealCycleLength(total int) int {
 }
 
 func (p *mixPlanner) initialState(start track.Track) mixState {
+	// Initialize tracking for all key numbers
+	stepsSinceKeyNumber := make(map[int]int)
+	for keyNum := range p.countsByNumber {
+		stepsSinceKeyNumber[keyNum] = 0
+	}
+	// Set the starting key to have been used
+	stepsSinceKeyNumber[start.Key.Number] = 0
+
 	state := mixState{
 		prev:                 start,
 		prevSet:              true,
@@ -207,10 +230,12 @@ func (p *mixPlanner) initialState(start track.Track) mixState {
 		desiredCycleLen:      p.desiredCycleLength,
 		stats:                p.stats,
 		sameNumberStreak:     0,
+		keyNumberRunLength:   1, // First track starts the run
 		stepsSinceStep1:      0,
 		stepsSinceStep2:      0,
 		stepsSinceLetterFlip: 0,
 		stepsSinceEnergyDrop: 0,
+		stepsSinceKeyNumber:  stepsSinceKeyNumber,
 	}
 	return state
 }
@@ -222,23 +247,45 @@ func (p *mixPlanner) chooseStartIndex() int {
 		keyGroups[candidate.Key.Number] = append(keyGroups[candidate.Key.Number], idx)
 	}
 
-	// Choose a random key number from those with at least 2 tracks (to enable good mixing)
-	var eligibleKeyNumbers []int
+	// Calculate overrepresentation - if any key is more than 12% of total, prioritize it for starting
+	originalTotal := float64(p.totalTracks)
+	var overrepresentedKeys []int
+	var balancedKeys []int
+
 	for keyNum, indices := range keyGroups {
-		if len(indices) >= 2 {
-			eligibleKeyNumbers = append(eligibleKeyNumbers, keyNum)
+		ratio := float64(len(indices)) / originalTotal
+		if ratio > 0.12 && len(indices) >= 2 {
+			overrepresentedKeys = append(overrepresentedKeys, keyNum)
+		} else if len(indices) >= 2 {
+			balancedKeys = append(balancedKeys, keyNum)
 		}
 	}
 
-	// If no key has 2+ tracks, fall back to all keys
-	if len(eligibleKeyNumbers) == 0 {
-		for keyNum := range keyGroups {
-			eligibleKeyNumbers = append(eligibleKeyNumbers, keyNum)
+	// Prefer starting with overrepresented keys 70% of the time to burn them down early
+	var selectedKeyNum int
+	if len(overrepresentedKeys) > 0 && p.rng.Float64() < 0.7 {
+		selectedKeyNum = overrepresentedKeys[p.rng.Intn(len(overrepresentedKeys))]
+	} else if len(balancedKeys) > 0 {
+		selectedKeyNum = balancedKeys[p.rng.Intn(len(balancedKeys))]
+	} else {
+		// Fallback to any key with multiple tracks
+		var eligibleKeys []int
+		for keyNum, indices := range keyGroups {
+			if len(indices) >= 2 {
+				eligibleKeys = append(eligibleKeys, keyNum)
+			}
+		}
+		if len(eligibleKeys) > 0 {
+			selectedKeyNum = eligibleKeys[p.rng.Intn(len(eligibleKeys))]
+		} else {
+			// Last resort: any key
+			for keyNum := range keyGroups {
+				selectedKeyNum = keyNum
+				break
+			}
 		}
 	}
 
-	// Randomly select a key number
-	selectedKeyNum := eligibleKeyNumbers[p.rng.Intn(len(eligibleKeyNumbers))]
 	keyNumberCandidates := keyGroups[selectedKeyNum]
 
 	// Now find the best candidate within that key number using the original scoring logic
@@ -458,7 +505,224 @@ func (p *mixPlanner) transitionScoreWithTransition(state *mixState, candidate tr
 		total += float64(state.sameNumberStreak+1) * 6
 	}
 
+	// Enhanced key number run penalty system per user requirements
+	if state.prevSet && candidate.Key.Number == state.prev.Key.Number {
+		runLength := state.keyNumberRunLength + 1
+		switch {
+		case runLength <= 2:
+			// 2 in a row: no problem
+		case runLength == 3:
+			// 3 in a row: not ideal, small penalty
+			total += 8.0
+		case runLength == 4:
+			// 4 in a row: only if necessary, strong penalty
+			total += 30.0
+		case runLength == 5:
+			// 5 in a row: big problem, "danger" level penalty
+			total += 80.0
+		default:
+			// 6+ in a row: emergency, SEVERE penalty
+			total += 200.0 + float64(runLength-5)*50.0
+		}
+	}
+
+	// REVOLUTIONARY: Proactive variety injection based on remaining inventory
+	totalRemaining := float64(len(p.remaining))
+	if totalRemaining > 0 && state.prevSet {
+		// Calculate mix progress
+		originalTotal := float64(p.totalTracks)
+		tracksPlayed := originalTotal - totalRemaining
+		mixProgress := tracksPlayed / originalTotal
+
+		// Calculate variety opportunity score for this candidate
+		varietyScore := calculateVarietyOpportunityScore(p, candidate, mixProgress, totalRemaining)
+		total += varietyScore
+	}
+
+	// ENHANCED: Sophisticated burn rate management based on position in mix
+	originalTotal := float64(p.totalTracks)
+	tracksPlayed := originalTotal - float64(len(p.remaining))
+	mixProgress := tracksPlayed / originalTotal // 0.0 = start, 1.0 = end
+
+	keyCount := float64(p.countsByNumber[candidate.Key.Number])
+	keyInventoryRatio := keyCount / originalTotal
+
+	// Calculate ideal burn rate for this position in the mix
+	idealKeysUsedByNow := keyCount * mixProgress
+	actualKeysUsed := keyCount - float64(countRemainingForKey(p.remaining, candidate.Key.Number))
+	burnRateDeviation := actualKeysUsed - idealKeysUsedByNow
+
+	// Apply position-aware burn rate pressure
+	if keyInventoryRatio > 0.15 { // High frequency keys (>15% of mix)
+		// MUCH MORE AGGRESSIVE: Force extreme early consumption
+		if mixProgress < 0.5 && burnRateDeviation < 0 {
+			// We're behind schedule - MASSIVE bonus to force consumption
+			burnBonus := (-burnRateDeviation) * 100.0 * (0.5 - mixProgress) * 4.0
+			total -= burnBonus
+		} else if mixProgress > 0.5 && mixProgress < 0.8 {
+			// Middle phase: continue burning pressure
+			if burnRateDeviation < -1 {
+				burnBonus := (-burnRateDeviation - 1) * 60.0
+				total -= burnBonus
+			}
+		} else if mixProgress > 0.8 {
+			// End phase: SEVERELY penalize to force variety
+			endGamePenalty := keyInventoryRatio * 200.0 * (mixProgress - 0.8) * 6.0
+			total += endGamePenalty
+		}
+	} else if keyInventoryRatio > 0.10 { // Medium frequency keys (10-15%)
+		// Moderate but firm pressure for medium keys
+		if mixProgress < 0.4 && burnRateDeviation < -1 {
+			burnBonus := (-burnRateDeviation - 1) * 70.0 * (0.4 - mixProgress)
+			total -= burnBonus
+		} else if mixProgress > 0.75 {
+			// Strong late penalty for medium frequency keys
+			latePenalty := keyInventoryRatio * 120.0 * (mixProgress - 0.75) * 4.0
+			total += latePenalty
+		}
+	} else if keyInventoryRatio < 0.06 { // Low frequency keys (<6% of mix)
+		// Conserve rare keys for strategic placement later
+		if mixProgress < 0.4 && actualKeysUsed > idealKeysUsedByNow+1 {
+			// Using rare keys too early - penalty
+			rarePenalty := (actualKeysUsed - idealKeysUsedByNow - 1) * 40.0
+			total += rarePenalty
+		} else if mixProgress > 0.6 && burnRateDeviation < -1 {
+			// Haven't used enough rare keys yet - moderate bonus
+			rareBonus := (-burnRateDeviation - 1) * 15.0
+			total -= rareBonus
+		}
+	}
+
+	// Legacy inventory penalty for backwards compatibility (reduced)
+	if keyInventoryRatio > 0.12 {
+		remainingRatio := float64(len(p.remaining)) / originalTotal
+		urgency := 1.0 - remainingRatio
+		inventoryPenalty := (keyInventoryRatio - 0.12) * 15.0 * (1.0 + urgency*1.0)
+		total += inventoryPenalty
+	}
+
+	// NEW: Smart distribution-based scoring
+	if state.prevSet {
+		stepsSince := float64(state.stepsSinceKeyNumber[candidate.Key.Number])
+		targetInterval := p.targetIntervals[candidate.Key.Number]
+
+		if targetInterval > 0 {
+			// Calculate how overdue this key is based on target spacing
+			overdueFactor := stepsSince / targetInterval
+
+			if overdueFactor > 1.8 {
+				// This key is VERY overdue - give it a large bonus
+				bonus := (overdueFactor - 1.8) * 40.0
+				total -= bonus
+			} else if overdueFactor > 1.2 {
+				// This key is overdue - give it a bonus
+				bonus := (overdueFactor - 1.2) * 20.0
+				total -= bonus
+			} else if overdueFactor < 0.4 && candidate.Key.Number == state.prev.Key.Number {
+				// This key was just used and is not due yet - strong penalty for consecutive use
+				prematurePenalty := (0.4 - overdueFactor) * 60.0
+				total += prematurePenalty
+			}
+		}
+
+		// ENHANCED: Proactive run prevention with lookahead
+		if state.keyNumberRunLength >= 3 && candidate.Key.Number != state.prev.Key.Number {
+			// Reward breaking out of long runs
+			breakoutBonus := float64(state.keyNumberRunLength-2) * 25.0
+			total -= breakoutBonus
+		}
+
+		// NEW: Predictive run prevention - look ahead to prevent future long runs
+		if candidate.Key.Number == state.prev.Key.Number {
+			// This would extend the current run - calculate future risk
+			futureRunLength := state.keyNumberRunLength + 1
+			keysRemainingOfThisType := float64(countRemainingForKey(p.remaining, candidate.Key.Number))
+
+			// If we're at high risk of creating a very long run, severely penalize
+			if futureRunLength >= 2 && keysRemainingOfThisType > 5 && mixProgress > 0.7 {
+				// Late in the mix with many keys of this type left - HIGH RISK
+				runRiskPenalty := keysRemainingOfThisType * 30.0 * (mixProgress - 0.7) * float64(futureRunLength)
+				total += runRiskPenalty
+			} else if futureRunLength >= 3 && keysRemainingOfThisType > 3 {
+				// Medium risk scenario
+				runRiskPenalty := keysRemainingOfThisType * 15.0 * float64(futureRunLength-2)
+				total += runRiskPenalty
+			}
+		}
+
+		// NEW: Diversity promotion - prefer keys that create better variety
+		if candidate.Key.Number != state.prev.Key.Number {
+			// This creates variety - check if we should give it extra credit
+			keysOfThisTypeRemaining := float64(countRemainingForKey(p.remaining, candidate.Key.Number))
+			totalKeysRemaining := float64(len(p.remaining))
+
+			if keysOfThisTypeRemaining/totalKeysRemaining < 0.15 { // This key type is becoming rare
+				// Bonus for using rare keys while we still can
+				diversityBonus := (0.15 - keysOfThisTypeRemaining/totalKeysRemaining) * 20.0
+				total -= diversityBonus
+			}
+		}
+	}
+
 	return total
+}
+
+// countRemainingForKey counts how many tracks of a specific key number remain
+func countRemainingForKey(remaining []track.Track, keyNumber int) int {
+	count := 0
+	for _, t := range remaining {
+		if t.Key.Number == keyNumber {
+			count++
+		}
+	}
+	return count
+}
+
+// calculateVarietyOpportunityScore determines how much to prefer/penalize a candidate
+// based on strategic variety management to prevent late-game monotony
+func calculateVarietyOpportunityScore(p *mixPlanner, candidate track.Track, mixProgress, totalRemaining float64) float64 {
+	keyNumber := candidate.Key.Number
+	keyCount := float64(p.countsByNumber[keyNumber])
+	originalTotal := float64(p.totalTracks)
+	keyInventoryRatio := keyCount / originalTotal
+
+	keysRemainingOfThisType := float64(countRemainingForKey(p.remaining, keyNumber))
+
+	// Strategy 1: Aggressive early burning of high-frequency keys
+	if keyInventoryRatio > 0.15 { // High frequency keys like 10A/10B (29 tracks)
+		if mixProgress < 0.4 {
+			// Very early: moderate pressure to use high-frequency keys
+			return -20.0 * (0.4 - mixProgress)
+		} else if mixProgress < 0.7 {
+			// Middle: strong pressure to burn high-frequency keys
+			return -40.0 * (0.7 - mixProgress)
+		} else {
+			// Late: extreme penalty for high-frequency keys to force variety
+			latePenalty := keysRemainingOfThisType * 50.0 * (mixProgress - 0.7) * 3.0
+			return latePenalty
+		}
+	}
+
+	// Strategy 2: Strategic conservation of rare keys
+	if keyInventoryRatio < 0.06 { // Rare keys like 5A/5B (4 tracks)
+		if mixProgress < 0.3 {
+			// Early: strong penalty for using rare keys too soon
+			return 50.0 * (0.3 - mixProgress)
+		} else if mixProgress > 0.8 && keysRemainingOfThisType > 0 {
+			// Very late: bonus for finally using conserved rare keys
+			return -30.0 * (mixProgress - 0.8)
+		}
+	}
+
+	// Strategy 3: Balanced medium-frequency key management
+	if keyInventoryRatio >= 0.06 && keyInventoryRatio <= 0.15 {
+		// Medium frequency keys - apply proportional pressure
+		if mixProgress > 0.6 {
+			return keysRemainingOfThisType * 10.0 * (mixProgress - 0.6)
+		}
+	}
+
+	return 0.0
 }
 
 func categorizeTransition(state *mixState, trans transition) int {
@@ -675,10 +939,12 @@ func (state *mixState) advance(next track.Track) {
 		state.cycleStartEnergy = float64(next.Energy)
 		state.tracksInCycle = 1
 		state.sameNumberStreak = 0
+		state.keyNumberRunLength = 1
 		state.stepsSinceStep1 = 0
 		state.stepsSinceStep2 = 0
 		state.stepsSinceLetterFlip = 0
 		state.stepsSinceEnergyDrop = 0
+		// stepsSinceKeyNumber already initialized in initialState
 		return
 	}
 
@@ -699,6 +965,20 @@ func (state *mixState) advance(next track.Track) {
 	} else {
 		state.sameNumberStreak = 0
 	}
+
+	// Track key number runs (7A->7B->7A = 3 in a row)
+	if next.Key.Number == previous.Key.Number {
+		state.keyNumberRunLength++
+	} else {
+		state.keyNumberRunLength = 1
+	}
+
+	// Update spacing tracking for all keys
+	for keyNum := range state.stepsSinceKeyNumber {
+		state.stepsSinceKeyNumber[keyNum]++
+	}
+	// Reset counter for the key we just used
+	state.stepsSinceKeyNumber[next.Key.Number] = 0
 
 	cappedIncrement := func(v int) int {
 		if v < 100 {

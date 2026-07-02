@@ -10,7 +10,9 @@ type Factory func() Sorter
 
 var (
 	factories = map[string]Factory{
-		defaultStrategyName: func() Sorter { return NewDefaultSorter() },
+		defaultStrategyName:   func() Sorter { return NewDefaultSorter() },
+		eloiseStrategyName:    func() Sorter { return NewEloiseSorter() },
+		constanceStrategyName: func() Sorter { return NewConstanceSorter() },
 	}
 )
 
