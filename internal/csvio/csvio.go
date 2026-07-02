@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,8 +18,9 @@ import (
 // The reader is header-aware: it maps columns by name (case-insensitive, tolerant
 // of punctuation such as "POP.") so column order and extra/unknown columns do not
 // matter. Recognized optional signals (danceability, valence, popularity,
-// acousticness) are captured when present. Files without a recognizable header fall
-// back to the legacy positional layout: title, artist, bpm, energy, key.
+// acousticness, length, release year) are captured when present. Files without a
+// recognizable header fall back to the legacy positional layout: title, artist, bpm,
+// energy, key.
 func Load(ctx context.Context, path string) ([]track.Track, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -34,9 +36,19 @@ func Load(ctx context.Context, path string) ([]track.Track, error) {
 	reader.TrimLeadingSpace = true
 	reader.FieldsPerRecord = -1 // tolerate rows with differing column counts
 
-	records, err := reader.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("read csv: %w", err)
+	var records [][]string
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read csv: %w", err)
+		}
+		records = append(records, record)
 	}
 	if len(records) == 0 {
 		return nil, nil
@@ -298,6 +310,13 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 			break
 		}
 	}
+	var hasYear bool
+	for _, t := range tracks {
+		if t.Year != nil {
+			hasYear = true
+			break
+		}
+	}
 
 	header := []string{"Title", "Artist", "BPM", "Energy", "Key"}
 	if hasDance {
@@ -314,6 +333,9 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 	}
 	if hasLength {
 		header = append(header, "Length")
+	}
+	if hasYear {
+		header = append(header, "Release")
 	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("write header: %w", err)
@@ -341,6 +363,9 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 		}
 		if hasLength {
 			row = append(row, formatDuration(t.Duration))
+		}
+		if hasYear {
+			row = append(row, optIntString(t.Year))
 		}
 		if err := writer.Write(row); err != nil {
 			return fmt.Errorf("write row: %w", err)

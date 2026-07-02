@@ -232,19 +232,28 @@ func reverseSegment(dst []int, i, j int) {
 
 // relocateSegment writes into dst the result of removing the length-l segment that
 // starts at index i in src and reinserting it so it begins at index p of the
-// remaining sequence. dst and src must be distinct slices of equal length.
+// remaining sequence. dst and src must be distinct slices of equal length. It does no
+// heap allocation (l is small: the caller uses 1-3), so it is cheap in the local
+// search inner loop.
 func relocateSegment(dst, src []int, i, l, p int) {
-	seg := make([]int, l)
+	var segbuf [8]int
+	seg := segbuf[:l]
 	copy(seg, src[i:i+l])
 
-	rest := make([]int, 0, len(src)-l)
-	rest = append(rest, src[:i]...)
-	rest = append(rest, src[i+l:]...)
-
-	// dst = rest[:p] + seg + rest[p:]
-	copy(dst, rest[:p])
-	copy(dst[p:], seg)
-	copy(dst[p+l:], rest[p:])
+	if p < i {
+		// dst = src[:p] + seg + src[p:i] + src[i+l:]
+		copy(dst[:p], src[:p])
+		copy(dst[p:p+l], seg)
+		copy(dst[p+l:i+l], src[p:i])
+		copy(dst[i+l:], src[i+l:])
+	} else {
+		// p indexes the sequence with the segment removed, so it maps past the gap.
+		// dst = src[:i] + src[i+l:p+l] + seg + src[p+l:]
+		copy(dst[:i], src[:i])
+		copy(dst[i:p], src[i+l:p+l])
+		copy(dst[p:p+l], seg)
+		copy(dst[p+l:], src[p+l:])
+	}
 }
 
 // chooseStarts returns candidate greedy start indices: the calmest tracks (good

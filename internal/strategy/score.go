@@ -366,7 +366,7 @@ func intensities(tracks []track.Track) []float64 {
 	return vals
 }
 
-// activeSignals reports which optional signals are present in at least half the
+// activeSignals reports which optional signals are present in more than half the
 // tracks (harmonic, tempo, and energy contour are always active).
 func activeSignals(tracks []track.Track) []string {
 	signals := []string{"harmonic", "tempo", "energy"}

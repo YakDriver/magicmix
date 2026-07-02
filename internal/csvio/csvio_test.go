@@ -142,8 +142,9 @@ func TestSave(t *testing.T) {
 
 func TestSaveRoundTripsExtendedSignals(t *testing.T) {
 	d, v := 63, 45
+	yr := 2024
 	tracks := []track.Track{
-		{Title: "A", Artist: "X", BPM: 120, Energy: 50, Key: track.Key{Number: 1, Mode: track.ModeA}, Danceability: &d, Valence: &v},
+		{Title: "A", Artist: "X", BPM: 120, Energy: 50, Key: track.Key{Number: 1, Mode: track.ModeA}, Danceability: &d, Valence: &v, Year: &yr},
 		{Title: "B", Artist: "Y", BPM: 121, Energy: 60, Key: track.Key{Number: 2, Mode: track.ModeB}},
 	}
 	dir := t.TempDir()
@@ -163,6 +164,9 @@ func TestSaveRoundTripsExtendedSignals(t *testing.T) {
 	}
 	if reloaded[0].Valence == nil || *reloaded[0].Valence != 45 {
 		t.Fatalf("valence not preserved: %+v", reloaded[0])
+	}
+	if reloaded[0].Year == nil || *reloaded[0].Year != 2024 {
+		t.Fatalf("year not preserved: %+v", reloaded[0])
 	}
 	// Second track had no danceability; it must round-trip as absent.
 	if reloaded[1].Danceability != nil {
