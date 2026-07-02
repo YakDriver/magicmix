@@ -167,6 +167,22 @@ func coherenceCost(a, b track.Track, w Weights) float64 {
 		w.Acoustic*acousticCost(a, b)
 }
 
+// mixTotal computes just the total score of an ordering (no reporting breakdown). It
+// equals ScoreMixWith(tracks, w).Total and is used where the value is needed many
+// times, such as marginal-cost analysis.
+func mixTotal(tracks []track.Track, w Weights) float64 {
+	if len(tracks) <= 1 {
+		return 0
+	}
+	total := 0.0
+	for i := 0; i+1 < len(tracks); i++ {
+		total += coherenceCost(tracks[i], tracks[i+1], w)
+	}
+	minResets, maxResets := waveResetBand(tracks)
+	total += w.Contour * contourPenalty(intensities(tracks), minResets, maxResets).RawPenalty
+	return total
+}
+
 // harmonicCost scores Camelot compatibility. Clockwise steps (+1, +2) are favored
 // over the counter-clockwise (-1) move, matching standard harmonic-mixing practice.
 func harmonicCost(a, b track.Key) float64 {

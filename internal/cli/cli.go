@@ -31,6 +31,7 @@ func run(ctx context.Context, args []string) error {
 	strategyName := fs.String("strategy", "default", "Sorting strategy to apply")
 	listStrategies := fs.Bool("list-strategies", false, "List available strategies and exit")
 	limit := fs.Int("limit", 0, "Optional maximum number of tracks to write")
+	keepAll := fs.Bool("keep-all", false, "Keep every track; do not drop ones that don't fit the mix")
 	seedFlag := fs.Int64("seed", 0, "Optional seed for pseudo-random decisions (defaults to time-based)")
 	timeout := fs.Duration("timeout", 0, "Optional timeout for processing (e.g. 30s)")
 	scoreOnly := fs.Bool("score", false, "Score the transitions in the input file (no sorting)")
@@ -107,6 +108,25 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	ordered := result.Ordered
+
+	if !*keepAll {
+		const maxDropFraction = 0.10
+		kept, dropped := strategy.TrimOutliers(ordered, maxDropFraction)
+		if len(dropped) > 0 {
+			// Re-optimize the kept tracks so the final sequence is clean.
+			if reordered, rerr := strategy.Sort(ctx, sorter, kept); rerr == nil {
+				ordered = reordered.Ordered
+			} else {
+				ordered = kept
+			}
+			fmt.Printf("Dropped %d of %d track(s) that didn't fit (use --keep-all to force all in):\n",
+				len(dropped), len(dropped)+len(ordered))
+			for _, d := range dropped {
+				fmt.Printf("  - %q by %s (roughness %.2f)\n", d.Track.Title, d.Track.Artist, d.MarginalCost)
+			}
+		}
+	}
+
 	if *limit > 0 && *limit < len(ordered) {
 		ordered = ordered[:*limit]
 		fmt.Printf("Applying limit %d; writing first %d tracks\n", *limit, len(ordered))
