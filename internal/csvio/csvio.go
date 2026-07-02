@@ -228,7 +228,29 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
+	// Preserve optional signals only when at least one track carries them, so
+	// legacy 5-column files round-trip unchanged while rich files keep their data.
+	var hasDance, hasValence, hasPop, hasAcoustic bool
+	for _, t := range tracks {
+		hasDance = hasDance || t.Danceability != nil
+		hasValence = hasValence || t.Valence != nil
+		hasPop = hasPop || t.Popularity != nil
+		hasAcoustic = hasAcoustic || t.Acousticness != nil
+	}
+
 	header := []string{"Title", "Artist", "BPM", "Energy", "Key"}
+	if hasDance {
+		header = append(header, "Danceability")
+	}
+	if hasValence {
+		header = append(header, "Valence")
+	}
+	if hasPop {
+		header = append(header, "Popularity")
+	}
+	if hasAcoustic {
+		header = append(header, "Acousticness")
+	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("write header: %w", err)
 	}
@@ -241,6 +263,18 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 			strconv.Itoa(t.Energy),
 			t.Key.String(),
 		}
+		if hasDance {
+			row = append(row, optIntString(t.Danceability))
+		}
+		if hasValence {
+			row = append(row, optIntString(t.Valence))
+		}
+		if hasPop {
+			row = append(row, optIntString(t.Popularity))
+		}
+		if hasAcoustic {
+			row = append(row, optIntString(t.Acousticness))
+		}
 		if err := writer.Write(row); err != nil {
 			return fmt.Errorf("write row: %w", err)
 		}
@@ -248,6 +282,14 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 
 	writer.Flush()
 	return writer.Error()
+}
+
+// optIntString renders an optional signal, using an empty cell when absent.
+func optIntString(p *int) string {
+	if p == nil {
+		return ""
+	}
+	return strconv.Itoa(*p)
 }
 
 func looksLikeData(record []string) bool {

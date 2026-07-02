@@ -138,6 +138,55 @@ func TestSave(t *testing.T) {
 	}
 }
 
+func TestSaveRoundTripsExtendedSignals(t *testing.T) {
+	d, v := 63, 45
+	tracks := []track.Track{
+		{Title: "A", Artist: "X", BPM: 120, Energy: 50, Key: track.Key{Number: 1, Mode: track.ModeA}, Danceability: &d, Valence: &v},
+		{Title: "B", Artist: "Y", BPM: 121, Energy: 60, Key: track.Key{Number: 2, Mode: track.ModeB}},
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rt.csv")
+	if err := csvio.Save(context.Background(), path, tracks); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+	reloaded, err := csvio.Load(context.Background(), path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if len(reloaded) != 2 {
+		t.Fatalf("got %d tracks, want 2", len(reloaded))
+	}
+	if reloaded[0].Danceability == nil || *reloaded[0].Danceability != 63 {
+		t.Fatalf("danceability not preserved: %+v", reloaded[0])
+	}
+	if reloaded[0].Valence == nil || *reloaded[0].Valence != 45 {
+		t.Fatalf("valence not preserved: %+v", reloaded[0])
+	}
+	// Second track had no danceability; it must round-trip as absent.
+	if reloaded[1].Danceability != nil {
+		t.Fatalf("expected absent danceability to stay nil, got %v", *reloaded[1].Danceability)
+	}
+}
+
+func TestSaveLegacyStaysFiveColumns(t *testing.T) {
+	tracks := []track.Track{
+		{Title: "A", Artist: "X", BPM: 120, Energy: 50, Key: track.Key{Number: 1, Mode: track.ModeA}},
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.csv")
+	if err := csvio.Save(context.Background(), path, tracks); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	wantHead := "Title,Artist,BPM,Energy,Key\n"
+	if got := string(content); len(got) < len(wantHead) || got[:len(wantHead)] != wantHead {
+		t.Fatalf("legacy output should keep 5-column header, got %q", got)
+	}
+}
+
 func writeTempFile(t *testing.T, data string) string {
 	t.Helper()
 	file, err := os.CreateTemp(t.TempDir(), "tracks-*.csv")
