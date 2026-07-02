@@ -14,6 +14,7 @@ var (
 		eloiseStrategyName:    func() Sorter { return NewEloiseSorter() },
 		constanceStrategyName: func() Sorter { return NewConstanceSorter() },
 		flowStrategyName:      func() Sorter { return NewFlowSorter() },
+		themesStrategyName:    func() Sorter { return NewThemesSorter() },
 	}
 )
 
