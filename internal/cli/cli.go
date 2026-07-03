@@ -23,6 +23,10 @@ func Run() error {
 }
 
 func run(ctx context.Context, args []string) error {
+	if len(args) > 0 && args[0] == "tournament" {
+		return runTournament(ctx, args[1:])
+	}
+
 	fs := flag.NewFlagSet("magicmix", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 
