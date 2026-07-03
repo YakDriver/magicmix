@@ -69,7 +69,7 @@ func runTournament(ctx context.Context, args []string) error {
 	fmt.Printf("Tournament: %d songs -> a ~%.0f min set\n", len(tracks), *minutes)
 	fmt.Printf("Diversity: %.2f (raise with --variety to cut over-represented vibes harder)\n", *variety)
 	fmt.Print("Meta: key · bpm · length · year · nrg/dnc/val/aco/pop (0-100)\n\n")
-	fmt.Print("  [1]/[2] keep that song   ·   3 both are great   ·   s skip   ·   q finish now\n\n")
+	fmt.Print("  [1]/[2] keep that song   ·   3 both great   ·   0 neither   ·   s skip   ·   q finish\n\n")
 
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -127,6 +127,8 @@ func decodeKey(b byte) (tournament.Outcome, bool) {
 		return tournament.PickRight, true
 	case '3', 'b', 'B':
 		return tournament.PickBoth, true
+	case '0', 'n', 'N':
+		return tournament.PickNeither, true
 	case 's', 'S':
 		return tournament.Skip, true
 	case 'q', 'Q', 3: // 3 = Ctrl-C
@@ -140,7 +142,7 @@ func renderMatchup(m tournament.Matchup) {
 		m.Phase, m.Battle, m.KeepEstimate, m.Contested)
 	fmt.Printf("  [1]  %s\r\n       %s\r\n\r\n", songTitle(m.Left), songMeta(m.Left))
 	fmt.Printf("  [2]  %s\r\n       %s\r\n\r\n", songTitle(m.Right), songMeta(m.Right))
-	fmt.Print("  1/2 keep · 3 both · s skip · q finish\r\n")
+	fmt.Print("  1/2 keep · 3 both · 0 neither · s skip · q finish\r\n")
 }
 
 func songTitle(t track.Track) string {

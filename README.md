@@ -24,9 +24,10 @@ dropped.
 
 `tournament` is an interactive culler for when you have more songs than set. It shows
 two songs at a time; you press **1** or **2** to keep the one you'd rather hear, **3**
-when both are great (boosts both), **s** to skip, **q** to finish. magicmix keeps the
-songs that fill a set of `--time` minutes and cuts the rest, then writes a
-`<input>_keep.csv` you can feed into `flow` or `chave`.
+when both are great (boosts both), **0** when neither grabs you (nudges both toward the
+cut), **s** to skip, **q** to finish. magicmix keeps the songs that fill a set of
+`--time` minutes and cuts the rest, then writes a `<input>_keep.csv` you can feed into
+`flow` or `chave`.
 
 ```bash
 go run ./cmd/magicmix tournament --input tracks.csv --time 180   # ~3-hour set

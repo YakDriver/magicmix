@@ -27,11 +27,12 @@ import (
 type Outcome int
 
 const (
-	PickLeft  Outcome = iota // keep the left song over the right
-	PickRight                // keep the right song over the left
-	Skip                     // no opinion; record nothing, don't ask this pair again
-	Quit                     // stop the tournament and keep the current best guess
-	PickBoth                 // both are strong; award each a win and let diversity decide
+	PickLeft    Outcome = iota // keep the left song over the right
+	PickRight                  // keep the right song over the left
+	Skip                       // no opinion; record nothing, don't ask this pair again
+	Quit                       // stop the tournament and keep the current best guess
+	PickBoth                   // both are strong; award each a win and let diversity decide
+	PickNeither                // neither is strong; award each a loss
 )
 
 // Phase labels where a battle sits in the process, for signposting.
@@ -90,10 +91,12 @@ type Result struct {
 }
 
 const (
-	restMargin    = 3 // |wins-losses| at which a song stops being scheduled in Swiss
-	maxSwiss      = 6 // hard cap on Swiss rounds
-	bubbleRounds  = 4 // hard cap on bubble rounds
-	stableRepeats = 2 // stop Swiss once the keep-set is unchanged this many rounds
+	restMargin    = 3  // |wins-losses| at which a song stops being scheduled in Swiss
+	maxSwiss      = 6  // hard cap on Swiss rounds
+	bubbleRounds  = 1  // hard cap on bubble rounds
+	stableRepeats = 1  // stop as soon as a round barely moves the keep-set
+	churnDivisor  = 25 // "barely moves" = keep-set changes by at most keepCount/this
+	minBand       = 6  // stop once at most this many songs are genuinely on the fence
 	avgSongMin    = 3.5
 )
 
@@ -170,6 +173,7 @@ func Run(ctx context.Context, tracks []track.Track, judge Judge, cfg Config) (Re
 // in doubt instead of re-auditioning obvious keeps and obvious cuts.
 func (e *engine) runSwiss(ctx context.Context) {
 	prevKept := map[int]bool{}
+	prevBand := len(e.tracks) + 1
 	stable := 0
 	for round := range maxSwiss {
 		if ctx.Err() != nil {
@@ -192,7 +196,15 @@ func (e *engine) runSwiss(ctx context.Context) {
 
 		kept := e.selectKeep()
 		keptSet := indexSet(kept)
-		if sameSet(keptSet, prevKept) {
+		band := len(e.contestedBand(kept))
+		if band <= minBand {
+			return // only a handful of interchangeable songs are still on the fence
+		}
+		if round > 0 && band >= prevBand {
+			return // the boundary is a tie cluster; more battles won't separate it
+		}
+		prevBand = band
+		if entered(keptSet, prevKept) <= e.churnTolerance(len(kept)) {
 			stable++
 			if stable >= stableRepeats {
 				return
@@ -223,17 +235,21 @@ func (e *engine) notDecisive(ids []int) []int {
 	return out
 }
 
-// runBubble concentrates remaining battles on songs straddling the keep/cut line.
+// runBubble concentrates remaining battles on songs straddling the keep/cut line,
+// stopping as soon as those battles stop moving the keep-set or the band stops
+// shrinking (a tie cluster that more battles can't separate).
 func (e *engine) runBubble(ctx context.Context) {
+	prevBand := len(e.tracks) + 1
 	for range bubbleRounds {
 		if ctx.Err() != nil {
 			return
 		}
 		kept := e.selectKeep()
 		band := e.contestedBand(kept)
-		if len(band) < 2 {
+		if len(band) <= minBand || len(band) >= prevBand {
 			return
 		}
+		prevBand = len(band)
 		pairs := e.pair(band)
 		if len(pairs) == 0 {
 			return
@@ -242,10 +258,20 @@ func (e *engine) runBubble(ctx context.Context) {
 		if !e.battleAll(ctx, pairs, PhaseBubble) {
 			return // quit
 		}
-		if sameSet(indexSet(e.selectKeep()), before) {
+		if entered(indexSet(e.selectKeep()), before) <= e.churnTolerance(len(kept)) {
 			return // battles no longer move the keep-set
 		}
 	}
+}
+
+// churnTolerance is how much the keep-set may change between rounds and still count as
+// settled. It scales with the keep count: when keeping many songs, a few borderline
+// swaps are noise; when keeping few, the boundary must be resolved more precisely.
+func (e *engine) churnTolerance(keepCount int) int {
+	if t := keepCount / churnDivisor; t > 1 {
+		return t
+	}
+	return 1
 }
 
 func (e *engine) battleAll(ctx context.Context, pairs [][2]int, phase Phase) bool {
@@ -274,6 +300,9 @@ func (e *engine) battleAll(ctx context.Context, pairs [][2]int, phase Phase) boo
 		case PickBoth:
 			e.wins[p[0]]++
 			e.wins[p[1]]++
+		case PickNeither:
+			e.losses[p[0]]++
+			e.losses[p[1]]++
 		case Skip:
 			// record nothing; the pair is already marked played
 		case Quit:
@@ -537,16 +566,16 @@ func indexSet(ids []int) map[int]bool {
 	return s
 }
 
-func sameSet(a, b map[int]bool) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k := range a {
-		if !b[k] {
-			return false
+// entered counts how many songs are in cur but not in prev — how much the keep-set
+// grew/changed since the previous round.
+func entered(cur, prev map[int]bool) int {
+	n := 0
+	for k := range cur {
+		if !prev[k] {
+			n++
 		}
 	}
-	return true
+	return n
 }
 
 func removeInt(s []int, v int) []int {
