@@ -14,6 +14,8 @@ func TestDecodeKey(t *testing.T) {
 	}{
 		{'1', tournament.PickLeft, true},
 		{'2', tournament.PickRight, true},
+		{'3', tournament.PickBoth, true},
+		{'b', tournament.PickBoth, true},
 		{'s', tournament.Skip, true},
 		{'S', tournament.Skip, true},
 		{'q', tournament.Quit, true},

@@ -185,3 +185,39 @@ func titles(tracks []track.Track) string {
 	}
 	return strings.Join(names, ",")
 }
+
+func TestTournamentBothAwardsBothAWin(t *testing.T) {
+	tracks := vibe("b", 2, 90, 130, 80, 90, 80, 10)
+	res, err := Run(context.Background(), tracks, func(Matchup) Outcome { return PickBoth }, Config{TargetMinutes: 7, Variety: 0.5, Seed: 1})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	for _, c := range res.Cut {
+		if c.Losses > 0 {
+			t.Fatalf("PickBoth should record no losses, got %d-%d", c.Wins, c.Losses)
+		}
+	}
+}
+
+func TestTournamentCutReasonsAreHonest(t *testing.T) {
+	tracks := mixedList()
+	res, err := Run(context.Background(), tracks, preferHigherQuality, Config{TargetMinutes: 45.5, Variety: 3, Seed: 9})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	for _, c := range res.Cut {
+		switch c.Reason {
+		case CutRedundant:
+			if c.Wins <= c.Losses {
+				t.Fatalf("redundant cut %q needs a winning record, got %d-%d", c.Track.Title, c.Wins, c.Losses)
+			}
+			if c.SharedKept == 0 {
+				t.Fatalf("redundant cut %q should have kept vibe-neighbors, got 0", c.Track.Title)
+			}
+		case CutLost:
+			if c.Wins > c.Losses {
+				t.Fatalf("lost cut %q should not have a winning record, got %d-%d", c.Track.Title, c.Wins, c.Losses)
+			}
+		}
+	}
+}

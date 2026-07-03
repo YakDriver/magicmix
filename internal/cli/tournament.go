@@ -68,7 +68,7 @@ func runTournament(ctx context.Context, args []string) error {
 
 	fmt.Printf("Tournament: %d songs -> a ~%.0f min set\n", len(tracks), *minutes)
 	fmt.Printf("Diversity: %.2f (raise with --variety to cut over-represented vibes harder)\n\n", *variety)
-	fmt.Print("  [1]/[2] keep that song   ·   s skip   ·   q finish now\n\n")
+	fmt.Print("  [1]/[2] keep that song   ·   3 both are great   ·   s skip   ·   q finish now\n\n")
 
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -124,6 +124,8 @@ func decodeKey(b byte) (tournament.Outcome, bool) {
 		return tournament.PickLeft, true
 	case '2':
 		return tournament.PickRight, true
+	case '3', 'b', 'B':
+		return tournament.PickBoth, true
 	case 's', 'S':
 		return tournament.Skip, true
 	case 'q', 'Q', 3: // 3 = Ctrl-C
@@ -137,7 +139,7 @@ func renderMatchup(m tournament.Matchup) {
 		m.Phase, m.Battle, m.KeepEstimate, m.Contested)
 	fmt.Printf("  [1]  %s\r\n       %s\r\n\r\n", songTitle(m.Left), songMeta(m.Left))
 	fmt.Printf("  [2]  %s\r\n       %s\r\n\r\n", songTitle(m.Right), songMeta(m.Right))
-	fmt.Print("  1/2 keep · s skip · q finish\r\n")
+	fmt.Print("  1/2 keep · 3 both · s skip · q finish\r\n")
 }
 
 func songTitle(t track.Track) string {
@@ -166,17 +168,19 @@ func printTournamentSummary(res tournament.Result) {
 		fmt.Printf("Done in %d comparisons.\n", res.Comparisons)
 	}
 
-	var lost, redundant int
+	var lost, missed, redundant int
 	for _, c := range res.Cut {
 		switch c.Reason {
 		case tournament.CutLost:
 			lost++
+		case tournament.CutMissed:
+			missed++
 		case tournament.CutRedundant:
 			redundant++
 		}
 	}
-	fmt.Printf("Kept %d · cut %d (%d lost their auditions, %d trimmed as redundant)\n",
-		len(res.Kept), len(res.Cut), lost, redundant)
+	fmt.Printf("Kept %d · cut %d (%d lost, %d just missed the cut, %d trimmed as redundant)\n",
+		len(res.Kept), len(res.Cut), lost, missed, redundant)
 
 	shown := 0
 	for _, c := range res.Cut {
@@ -184,13 +188,13 @@ func printTournamentSummary(res tournament.Result) {
 			continue
 		}
 		if shown == 0 {
-			fmt.Println("\nTrimmed as redundant (vibe already well covered):")
+			fmt.Println("\nTrimmed as redundant (a winning record, but its vibe was already covered):")
 		}
 		if shown >= 10 {
 			fmt.Printf("  ... and %d more\n", redundant-shown)
 			break
 		}
-		fmt.Printf("  - %s — %s (%d-%d, %d kept songs share its vibe)\n",
+		fmt.Printf("  - %s — %s (%d-%d, %d kept song(s) share its vibe)\n",
 			c.Track.Title, c.Track.Artist, c.Wins, c.Losses, c.SharedKept)
 		shown++
 	}

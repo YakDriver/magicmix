@@ -31,6 +31,7 @@ const (
 	PickRight                // keep the right song over the left
 	Skip                     // no opinion; record nothing, don't ask this pair again
 	Quit                     // stop the tournament and keep the current best guess
+	PickBoth                 // both are strong; award each a win and let diversity decide
 )
 
 // Phase labels where a battle sits in the process, for signposting.
@@ -67,7 +68,8 @@ type CutReason string
 
 const (
 	CutLost      CutReason = "lost"      // lost more auditions than it won
-	CutRedundant CutReason = "redundant" // held its own, but its vibe was already well covered
+	CutMissed    CutReason = "missed"    // a decent record, but it just didn't fit the time budget
+	CutRedundant CutReason = "redundant" // its record would have kept it, but its vibe was already covered
 )
 
 // Cut is a song that was left out, with the reason.
@@ -169,7 +171,7 @@ func Run(ctx context.Context, tracks []track.Track, judge Judge, cfg Config) (Re
 func (e *engine) runSwiss(ctx context.Context) {
 	prevKept := map[int]bool{}
 	stable := 0
-	for round := 0; round < maxSwiss; round++ {
+	for round := range maxSwiss {
 		if ctx.Err() != nil {
 			return
 		}
@@ -223,7 +225,7 @@ func (e *engine) notDecisive(ids []int) []int {
 
 // runBubble concentrates remaining battles on songs straddling the keep/cut line.
 func (e *engine) runBubble(ctx context.Context) {
-	for round := 0; round < bubbleRounds; round++ {
+	for range bubbleRounds {
 		if ctx.Err() != nil {
 			return
 		}
@@ -269,6 +271,9 @@ func (e *engine) battleAll(ctx context.Context, pairs [][2]int, phase Phase) boo
 		case PickRight:
 			e.wins[p[1]]++
 			e.losses[p[0]]++
+		case PickBoth:
+			e.wins[p[0]]++
+			e.wins[p[1]]++
 		case Skip:
 			// record nothing; the pair is already marked played
 		case Quit:
@@ -336,6 +341,12 @@ func better(rematch bool, diff, share int, bestRematch bool, bestDiff, bestShare
 // selectKeep greedily fills the set to the time budget, maximizing each song's record
 // minus a redundancy penalty against songs already kept (submodular diversity).
 func (e *engine) selectKeep() []int {
+	return e.selectKeepWith(e.variety)
+}
+
+// selectKeepWith is selectKeep at a given diversity level; variety 0 selects purely by
+// record, which finalize uses to tell "trimmed as redundant" from "just missed the cut".
+func (e *engine) selectKeepWith(variety float64) []int {
 	remaining := make([]int, len(e.tracks))
 	for i := range remaining {
 		remaining[i] = i
@@ -346,7 +357,7 @@ func (e *engine) selectKeep() []int {
 	for len(remaining) > 0 {
 		bi, bv := -1, math.Inf(-1)
 		for _, i := range remaining {
-			if v := e.value(i, kept); v > bv || (v == bv && (bi == -1 || i < bi)) {
+			if v := e.valueWith(i, kept, variety); v > bv || (v == bv && (bi == -1 || i < bi)) {
 				bi, bv = i, v
 			}
 		}
@@ -368,7 +379,11 @@ func (e *engine) selectKeep() []int {
 }
 
 func (e *engine) value(i int, kept []int) float64 {
-	return float64(e.margin(i)) - e.variety*e.redundancy(i, kept)
+	return e.valueWith(i, kept, e.variety)
+}
+
+func (e *engine) valueWith(i int, kept []int, variety float64) float64 {
+	return float64(e.margin(i)) - variety*e.redundancy(i, kept)
 }
 
 // redundancy is the summed fractional tag overlap of song i with the kept set; each
@@ -436,6 +451,7 @@ func (e *engine) keepTarget() int {
 func (e *engine) finalize() Result {
 	kept := e.selectKeep()
 	keptSet := indexSet(kept)
+	marginKept := indexSet(e.selectKeepWith(0)) // what record alone would keep
 	res := Result{
 		Comparisons: e.battles,
 		Aborted:     e.aborted,
@@ -448,25 +464,37 @@ func (e *engine) finalize() Result {
 		if keptSet[i] {
 			continue
 		}
-		reason := CutRedundant
-		if e.margin(i) <= 0 {
+		var reason CutReason
+		switch {
+		case e.margin(i) <= 0:
 			reason = CutLost
+		case marginKept[i]:
+			reason = CutRedundant // record would have kept it; diversity bumped it for its vibe
+		default:
+			reason = CutMissed // decent record, just didn't fit the time budget
 		}
 		res.Cut = append(res.Cut, Cut{
 			Track:      e.tracks[i],
 			Reason:     reason,
 			Wins:       e.wins[i],
 			Losses:     e.losses[i],
-			SharedKept: e.countSharedKept(i, keptSet),
+			SharedKept: e.vibeNeighborsKept(i, keptSet),
 		})
 	}
 	return res
 }
 
-func (e *engine) countSharedKept(i int, keptSet map[int]bool) int {
+// vibeNeighborsKept counts kept songs that share a majority of song i's tags — a
+// graded "same vibe" measure, unlike a strict all-tags match that rarely fires.
+func (e *engine) vibeNeighborsKept(i int, keptSet map[int]bool) int {
+	tags := e.tags[i]
+	if len(tags) == 0 {
+		return 0
+	}
+	threshold := (len(tags) + 1) / 2
 	n := 0
 	for k := range keptSet {
-		if sharedTags(e.tags[i], e.tags[k]) >= len(e.tags[i]) && len(e.tags[i]) > 0 {
+		if sharedTags(tags, e.tags[k]) >= threshold {
 			n++
 		}
 	}

@@ -23,9 +23,10 @@ dropped.
 ## Tournament: choosing what to keep
 
 `tournament` is an interactive culler for when you have more songs than set. It shows
-two songs at a time; you press **1** or **2** to keep the one you'd rather hear (**s**
-skip, **q** finish). magicmix keeps the songs that fill a set of `--time` minutes and
-cuts the rest, then writes a `<input>_keep.csv` you can feed into `flow` or `chave`.
+two songs at a time; you press **1** or **2** to keep the one you'd rather hear, **3**
+when both are great (boosts both), **s** to skip, **q** to finish. magicmix keeps the
+songs that fill a set of `--time` minutes and cuts the rest, then writes a
+`<input>_keep.csv` you can feed into `flow` or `chave`.
 
 ```bash
 go run ./cmd/magicmix tournament --input tracks.csv --time 180   # ~3-hour set
@@ -37,7 +38,9 @@ a ranking or a winner, so battles concentrate on the songs near the cut line. Ma
 are fair (like-vs-like — songs that share a vibe). A **diversity** knob (shown at
 start, tune with `--variety`) pares down over-represented vibes: raise it to keep the
 best few of a common sound and make room for rarer ones. At the end it reports what it
-cut and why (lost its auditions vs. trimmed as redundant).
+cut and why: **lost** (more losses than wins), **just missed the cut** (a fine record
+that didn't fit the time), or **trimmed as redundant** (a winning record bumped because
+its vibe was already covered).
 
 ## Input CSV
 
