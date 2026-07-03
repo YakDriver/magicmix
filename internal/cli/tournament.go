@@ -67,7 +67,8 @@ func runTournament(ctx context.Context, args []string) error {
 	}
 
 	fmt.Printf("Tournament: %d songs -> a ~%.0f min set\n", len(tracks), *minutes)
-	fmt.Printf("Diversity: %.2f (raise with --variety to cut over-represented vibes harder)\n\n", *variety)
+	fmt.Printf("Diversity: %.2f (raise with --variety to cut over-represented vibes harder)\n", *variety)
+	fmt.Print("Meta: key · bpm · length · year · nrg/dnc/val/aco/pop (0-100)\n\n")
 	fmt.Print("  [1]/[2] keep that song   ·   3 both are great   ·   s skip   ·   q finish now\n\n")
 
 	oldState, err := term.MakeRaw(fd)
@@ -147,18 +148,28 @@ func songTitle(t track.Track) string {
 }
 
 func songMeta(t track.Track) string {
-	parts := []string{
-		fmt.Sprintf("%.0f BPM", t.BPM),
-		fmt.Sprintf("energy %d", t.Energy),
-		t.Key.String(),
+	head := []string{t.Key.String(), fmt.Sprintf("%.0fbpm", t.BPM)}
+	if t.Duration != nil {
+		head = append(head, fmt.Sprintf("%d:%02d", *t.Duration/60, *t.Duration%60))
 	}
 	if t.Year != nil {
-		parts = append(parts, fmt.Sprintf("%d", *t.Year))
+		head = append(head, fmt.Sprintf("%d", *t.Year))
 	}
-	if t.Duration != nil {
-		parts = append(parts, fmt.Sprintf("%d:%02d", *t.Duration/60, *t.Duration%60))
+
+	sig := []string{fmt.Sprintf("nrg%d", t.Energy)}
+	sig = appendSig(sig, "dnc", t.Danceability)
+	sig = appendSig(sig, "val", t.Valence)
+	sig = appendSig(sig, "aco", t.Acousticness)
+	sig = appendSig(sig, "pop", t.Popularity)
+
+	return strings.Join(head, " · ") + " · " + strings.Join(sig, " ")
+}
+
+func appendSig(sig []string, abbr string, v *int) []string {
+	if v != nil {
+		sig = append(sig, fmt.Sprintf("%s%d", abbr, *v))
 	}
-	return strings.Join(parts, " · ")
+	return sig
 }
 
 func printTournamentSummary(res tournament.Result) {
