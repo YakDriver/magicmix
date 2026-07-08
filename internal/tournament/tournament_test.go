@@ -221,3 +221,31 @@ func TestTournamentCutReasonsAreHonest(t *testing.T) {
 		}
 	}
 }
+
+func TestTournamentCanceledContextPropagates(t *testing.T) {
+	tracks := mixedList()
+	ctx, cancel := context.WithCancel(context.Background())
+	judge := func(m Matchup) Outcome {
+		cancel() // cancel mid-run, then keep answering
+		return preferHigherQuality(m)
+	}
+	_, err := Run(ctx, tracks, judge, Config{TargetMinutes: 45.5, Variety: 0.5, Seed: 1})
+	if err == nil {
+		t.Fatal("expected a context error when the context is canceled mid-run")
+	}
+}
+
+func TestTournamentTieRecordsAreNotLost(t *testing.T) {
+	// Every battle is skipped, so no song has a losing (or winning) record. None of
+	// the cuts should be labeled "lost" — a tie is not a loss.
+	tracks := mixedList()
+	res, err := Run(context.Background(), tracks, func(Matchup) Outcome { return Skip }, Config{TargetMinutes: 45.5, Variety: 0.5, Seed: 1})
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	for _, c := range res.Cut {
+		if c.Reason == CutLost {
+			t.Fatalf("tie-record cut %q (%d-%d) labeled lost", c.Track.Title, c.Wins, c.Losses)
+		}
+	}
+}

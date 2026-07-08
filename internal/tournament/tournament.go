@@ -164,6 +164,11 @@ func Run(ctx context.Context, tracks []track.Track, judge Judge, cfg Config) (Re
 	if !e.aborted {
 		e.runBubble(ctx)
 	}
+	// A canceled context is a programmatic abort — surface it. A judge-driven Quit is
+	// different: it sets aborted and returns the best-guess keep-set with no error.
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	return e.finalize(), nil
 }
 
@@ -495,12 +500,12 @@ func (e *engine) finalize() Result {
 		}
 		var reason CutReason
 		switch {
-		case e.margin(i) <= 0:
-			reason = CutLost
-		case marginKept[i]:
-			reason = CutRedundant // record would have kept it; diversity bumped it for its vibe
+		case e.margin(i) < 0:
+			reason = CutLost // more losses than wins
+		case e.margin(i) > 0 && marginKept[i]:
+			reason = CutRedundant // a winning record would have kept it; diversity bumped it
 		default:
-			reason = CutMissed // decent record, just didn't fit the time budget
+			reason = CutMissed // a non-losing record that didn't fit the time budget
 		}
 		res.Cut = append(res.Cut, Cut{
 			Track:      e.tracks[i],
