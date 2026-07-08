@@ -3,18 +3,27 @@
 `magicmix` sequences a tracklist into a smooth, intentional set: it orders songs so
 key, tempo, mood, and energy flow well — and drops the few that don't fit.
 
+## Install
+
+```bash
+go install github.com/YakDriver/magicmix/cmd/magicmix@latest
+```
+
+This puts a `magicmix` binary in `$(go env GOPATH)/bin` (or `$GOBIN`) — make sure
+that's on your `PATH`. To run from a checkout instead, see [Develop](#develop).
+
 ## Quick start
 
 ```bash
 # order a playlist (writes tracks_magicmix.csv next to the input)
-go run ./cmd/magicmix --input tracks.csv --strategy flow
+magicmix --input tracks.csv --strategy flow
 
 # score an existing ordering instead of sorting
-go run ./cmd/magicmix --input tracks.csv --score          # summary
-go run ./cmd/magicmix --input tracks.csv --score-verbose  # full breakdown
+magicmix --input tracks.csv --score          # summary
+magicmix --input tracks.csv --score-verbose  # full breakdown
 
 # pick which songs make the cut for a set of a given length (interactive)
-go run ./cmd/magicmix tournament --input tracks.csv --time 180
+magicmix tournament --input tracks.csv --time 180
 ```
 
 The run prints the seed it used (rerun with `--seed=<value>`) and lists any tracks it
@@ -30,8 +39,8 @@ cut), **s** to skip, **q** to finish. magicmix keeps the songs that fill a set o
 `flow` or `chave`.
 
 ```bash
-go run ./cmd/magicmix tournament --input tracks.csv --time 180   # ~3-hour set
-go run ./cmd/magicmix --input tracks_keep.csv --strategy chave   # then order it
+magicmix tournament --input tracks.csv --time 180   # ~3-hour set
+magicmix --input tracks_keep.csv --strategy chave   # then order it
 ```
 
 It's built to ask as few questions as possible: it only needs a keep/cut decision, not
@@ -119,4 +128,10 @@ make install # install the magicmix binary to $GOBIN
 make test    # unit tests
 make ci      # build + test + vet + modernize
 make lint    # golangci-lint
+```
+
+Run from a checkout without installing:
+
+```bash
+go run ./cmd/magicmix --input tracks.csv --strategy flow
 ```
