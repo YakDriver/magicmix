@@ -70,6 +70,11 @@ type Track struct {
 	Acousticness *int // 0-100, higher = more acoustic
 	Duration     *int // track length in seconds
 	Year         *int // release year (e.g. 2024)
+
+	// Raw is the original CSV row this track was parsed from, kept so output can be a
+	// faithful pass-through of the input (same columns and order). nil when the track
+	// was not loaded from a CSV row.
+	Raw []string
 }
 
 // Clone returns a copy useful for preserving the original slice whilst sorting.
@@ -88,6 +93,9 @@ func (t Track) Clone() Track {
 	clone.Acousticness = copyIntPtr(t.Acousticness)
 	clone.Duration = copyIntPtr(t.Duration)
 	clone.Year = copyIntPtr(t.Year)
+	if t.Raw != nil {
+		clone.Raw = append([]string(nil), t.Raw...)
+	}
 	return clone
 }
 

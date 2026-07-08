@@ -23,6 +23,10 @@ func Run() error {
 }
 
 func run(ctx context.Context, args []string) error {
+	if len(args) > 0 && args[0] == "tournament" {
+		return runTournament(ctx, args[1:])
+	}
+
 	fs := flag.NewFlagSet("magicmix", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 
@@ -90,12 +94,12 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	tracks, err := csvio.Load(ctx, *inputPath)
+	playlist, err := csvio.LoadPlaylist(ctx, *inputPath)
 	if err != nil {
 		return err
 	}
 
-	result, err := strategy.Sort(ctx, sorter, tracks)
+	result, err := strategy.Sort(ctx, sorter, playlist.Tracks)
 	if err != nil {
 		return err
 	}
@@ -132,7 +136,11 @@ func run(ctx context.Context, args []string) error {
 		fmt.Printf("Applying limit %d; writing first %d tracks\n", *limit, len(ordered))
 	}
 
-	if err := csvio.Save(ctx, resolvedOutput, ordered); err != nil {
+	if err := csvio.SaveInFormat(ctx, resolvedOutput, csvio.Playlist{
+		Header: playlist.Header,
+		CRLF:   playlist.CRLF,
+		Tracks: ordered,
+	}); err != nil {
 		return err
 	}
 

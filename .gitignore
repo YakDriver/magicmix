@@ -41,3 +41,7 @@ go.work.sum
 
 # Local CLI binary
 magicmix
+
+# Generated playlist output (written next to the input)
+*_magicmix.csv
+*_keep.csv

@@ -12,10 +12,48 @@ go run ./cmd/magicmix --input tracks.csv --strategy flow
 # score an existing ordering instead of sorting
 go run ./cmd/magicmix --input tracks.csv --score          # summary
 go run ./cmd/magicmix --input tracks.csv --score-verbose  # full breakdown
+
+# pick which songs make the cut for a set of a given length (interactive)
+go run ./cmd/magicmix tournament --input tracks.csv --time 180
 ```
 
 The run prints the seed it used (rerun with `--seed=<value>`) and lists any tracks it
 dropped.
+
+## Tournament: choosing what to keep
+
+`tournament` is an interactive culler for when you have more songs than set. It shows
+two songs at a time; you press **1** or **2** to keep the one you'd rather hear, **3**
+when both are great (boosts both), **0** when neither grabs you (nudges both toward the
+cut), **s** to skip, **q** to finish. magicmix keeps the songs that fill a set of
+`--time` minutes and cuts the rest, then writes a `<input>_keep.csv` you can feed into
+`flow` or `chave`.
+
+```bash
+go run ./cmd/magicmix tournament --input tracks.csv --time 180   # ~3-hour set
+go run ./cmd/magicmix --input tracks_keep.csv --strategy chave   # then order it
+```
+
+It's built to ask as few questions as possible: it only needs a keep/cut decision, not
+a ranking or a winner, so battles concentrate on the songs near the cut line. Matchups
+are fair (like-vs-like — songs that share a vibe). A **diversity** knob (shown at
+start, tune with `--variety`) pares down over-represented vibes: raise it to keep the
+best few of a common sound and make room for rarer ones. At the end it reports what it
+cut and why: **lost** (more losses than wins), **just missed the cut** (a fine record
+that didn't fit the time), or **trimmed as redundant** (a winning record bumped because
+its vibe was already covered).
+
+Tournament flags:
+
+| Flag | Purpose |
+| --- | --- |
+| `--input` | source CSV (required) |
+| `--time` | target set length in minutes, e.g. `180` (required) |
+| `--variety` | diversity knob (default `0.6`); higher pares over-represented vibes harder |
+| `--output` | keep-set destination (default `<input>_keep.csv`) |
+| `--seed` | deterministic pairing (`0`/omitted = time-based) |
+
+It needs an interactive terminal (it reads single keypresses).
 
 ## Input CSV
 
@@ -27,6 +65,12 @@ matter:
   `acousticness`, `length` (`m:ss`), `release` (a date or year, e.g. `2024-05-01`)
 
 Headerless files fall back to positional `title,artist,bpm,energy,key`.
+
+Output is a faithful pass-through: the written CSV keeps the input's columns in the
+same order — including extra columns magicmix doesn't use — with only the rows
+reordered (and dropped tracks omitted). Input line endings are preserved. Values
+aren't rewritten, so an unused index column like `#` stays as-is and will read out of
+sequence after reordering.
 
 ## Strategies
 
@@ -51,6 +95,9 @@ One adaptive model — signals you don't have are skipped:
   ramp are penalized. The ending is neutral.
 
 ## Options
+
+These apply to the ordering/scoring command (`--strategy`/`--score`); the `tournament`
+subcommand has its own flags (see above).
 
 | Flag | Purpose |
 | --- | --- |

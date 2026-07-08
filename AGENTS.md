@@ -25,7 +25,11 @@ Lower is better; signals absent from the data are skipped.
 - `internal/cli` — flags and wiring (`--strategy`, `--seed`, `--limit`, `--keep-all`, `--score`).
 - `internal/strategy` — strategies (`flow` is primary; `chave` groups songs into
   themed ~20-30 min chapters; `default`/`eloise`/`constance` are legacy), the scoring
-  model (`score.go`), and outlier detection (`outliers.go`).
+  model (`score.go`), tag extraction (`tags.go`), and outlier detection (`outliers.go`).
+- `internal/tournament` — the interactive keep/cut selector behind `magicmix
+  tournament`: Swiss-style pairwise auditions with redundancy-penalized selection to a
+  time budget. Pure engine (driven by a `Judge`); the keypress UI lives in
+  `internal/cli/tournament.go`.
 - `internal/track`, `internal/csvio` — domain model and header-aware CSV IO.
 - `internal/testdata` — fixtures.
 
