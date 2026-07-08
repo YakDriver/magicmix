@@ -43,6 +43,18 @@ cut and why: **lost** (more losses than wins), **just missed the cut** (a fine r
 that didn't fit the time), or **trimmed as redundant** (a winning record bumped because
 its vibe was already covered).
 
+Tournament flags:
+
+| Flag | Purpose |
+| --- | --- |
+| `--input` | source CSV (required) |
+| `--time` | target set length in minutes, e.g. `180` (required) |
+| `--variety` | diversity knob (default `0.6`); higher pares over-represented vibes harder |
+| `--output` | keep-set destination (default `<input>_keep.csv`) |
+| `--seed` | deterministic pairing (`0`/omitted = time-based) |
+
+It needs an interactive terminal (it reads single keypresses).
+
 ## Input CSV
 
 A header row is matched by name — case-insensitive, order and extra columns don't
@@ -77,6 +89,9 @@ One adaptive model — signals you don't have are skipped:
   ramp are penalized. The ending is neutral.
 
 ## Options
+
+These apply to the ordering/scoring command (`--strategy`/`--score`); the `tournament`
+subcommand has its own flags (see above).
 
 | Flag | Purpose |
 | --- | --- |
