@@ -39,8 +39,8 @@ go.work.sum
 .gocache/
 .gomodcache/
 
-# Local CLI binary
-magicmix
+# Local CLI binary (repo-root build output only; must not match cmd/magicmix/)
+/magicmix
 
 # GoReleaser build output
 dist/
