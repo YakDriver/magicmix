@@ -53,10 +53,11 @@ func runTournament(ctx context.Context, args []string) error {
 		return errors.New("--time (minutes) is required and must be positive")
 	}
 
-	tracks, err := csvio.Load(ctx, *inputPath)
+	playlist, err := csvio.LoadPlaylist(ctx, *inputPath)
 	if err != nil {
 		return err
 	}
+	tracks := playlist.Tracks
 	if len(tracks) < 2 {
 		return fmt.Errorf("need at least 2 tracks to run a tournament, got %d", len(tracks))
 	}
@@ -91,7 +92,11 @@ func runTournament(ctx context.Context, args []string) error {
 	if resolvedOutput == "" {
 		resolvedOutput = deriveTournamentOutput(*inputPath)
 	}
-	if err := csvio.Save(ctx, resolvedOutput, res.Kept); err != nil {
+	if err := csvio.SaveInFormat(ctx, resolvedOutput, csvio.Playlist{
+		Header: playlist.Header,
+		CRLF:   playlist.CRLF,
+		Tracks: res.Kept,
+	}); err != nil {
 		return err
 	}
 

@@ -66,6 +66,12 @@ matter:
 
 Headerless files fall back to positional `title,artist,bpm,energy,key`.
 
+Output is a faithful pass-through: the written CSV keeps the input's columns in the
+same order — including extra columns magicmix doesn't use — with only the rows
+reordered (and dropped tracks omitted). Input line endings are preserved. Values
+aren't rewritten, so an unused index column like `#` stays as-is and will read out of
+sequence after reordering.
+
 ## Strategies
 
 - **`flow`** (recommended) — treats ordering as a path-optimization problem and

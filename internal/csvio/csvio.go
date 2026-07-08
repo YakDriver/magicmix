@@ -1,6 +1,7 @@
 package csvio
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"fmt"
@@ -13,7 +14,16 @@ import (
 	"github.com/YakDriver/magicmix/internal/track"
 )
 
-// Load reads tracks from a CSV file on disk.
+// Playlist is a track list plus the shape of the file it came from, so output can be
+// written back in the same format (same columns, same order, extra columns preserved).
+type Playlist struct {
+	Header []string // the input header row; nil when the file had no recognizable header
+	CRLF   bool     // the input used \r\n line endings
+	Tracks []track.Track
+}
+
+// Load reads tracks from a CSV file on disk. It is a convenience wrapper around
+// LoadPlaylist for callers that only need the tracks.
 //
 // The reader is header-aware: it maps columns by name (case-insensitive, tolerant
 // of punctuation such as "POP.") so column order and extra/unknown columns do not
@@ -22,42 +32,65 @@ import (
 // recognizable header fall back to the legacy positional layout: title, artist, bpm,
 // energy, key.
 func Load(ctx context.Context, path string) ([]track.Track, error) {
-	if err := ctx.Err(); err != nil {
+	pl, err := LoadPlaylist(ctx, path)
+	if err != nil {
 		return nil, err
 	}
+	return pl.Tracks, nil
+}
 
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open input: %w", err)
+// LoadPlaylist reads a CSV and also remembers the header row and line-ending style,
+// and stashes each row's raw cells on its Track, so SaveInFormat can echo the input's
+// exact columns and order with only the rows reordered.
+func LoadPlaylist(ctx context.Context, path string) (Playlist, error) {
+	if err := ctx.Err(); err != nil {
+		return Playlist{}, err
 	}
-	defer func() { _ = file.Close() }()
 
-	reader := csv.NewReader(file)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Playlist{}, fmt.Errorf("open input: %w", err)
+	}
+	pl := Playlist{CRLF: bytes.Contains(data, []byte("\r\n"))}
+
+	reader := csv.NewReader(bytes.NewReader(data))
 	reader.TrimLeadingSpace = true
 	reader.FieldsPerRecord = -1 // tolerate rows with differing column counts
 
 	var records [][]string
 	for {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return Playlist{}, err
 		}
 		record, err := reader.Read()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read csv: %w", err)
+			return Playlist{}, fmt.Errorf("read csv: %w", err)
 		}
 		records = append(records, record)
 	}
 	if len(records) == 0 {
-		return nil, nil
+		return pl, nil
 	}
 
 	if columns, ok := detectHeader(records[0]); ok {
-		return parseMapped(records[1:], columns)
+		pl.Header = records[0]
+		tracks, err := parseMapped(records[1:], columns)
+		if err != nil {
+			return Playlist{}, err
+		}
+		pl.Tracks = tracks
+		return pl, nil
 	}
-	return parsePositional(records)
+
+	tracks, err := parsePositional(records)
+	if err != nil {
+		return Playlist{}, err
+	}
+	pl.Tracks = tracks
+	return pl, nil
 }
 
 // column identifies a canonical field the reader knows how to use.
@@ -127,6 +160,7 @@ func parseMapped(rows [][]string, columns map[column]int) ([]track.Track, error)
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", i+2, err) // +2: header is line 1
 		}
+		tr.Raw = record
 		tracks = append(tracks, tr)
 	}
 	return tracks, nil
@@ -261,6 +295,7 @@ func parsePositional(records [][]string) ([]track.Track, error) {
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", i+1, err)
 		}
+		tr.Raw = record
 		tracks = append(tracks, tr)
 	}
 	return tracks, nil
@@ -275,8 +310,49 @@ func isBlank(record []string) bool {
 	return true
 }
 
-// Save writes ordered tracks to disk, creating directories as needed.
-func Save(_ context.Context, path string, tracks []track.Track) (err error) {
+// Save writes ordered tracks to disk in magicmix's canonical schema, creating
+// directories as needed.
+func Save(_ context.Context, path string, tracks []track.Track) error {
+	return writeCSV(path, false, func(w *csv.Writer) error {
+		return writeCanonical(w, tracks)
+	})
+}
+
+// SaveInFormat writes pl.Tracks to disk. When the tracks carry their original rows
+// (loaded via LoadPlaylist), it echoes the input's exact columns and order — header,
+// extra columns, and line endings — with only the rows reordered. Otherwise it falls
+// back to the canonical schema.
+func SaveInFormat(_ context.Context, path string, pl Playlist) error {
+	passthrough := len(pl.Tracks) > 0 && allHaveRaw(pl.Tracks)
+	return writeCSV(path, pl.CRLF && passthrough, func(w *csv.Writer) error {
+		if !passthrough {
+			return writeCanonical(w, pl.Tracks)
+		}
+		if pl.Header != nil {
+			if err := w.Write(pl.Header); err != nil {
+				return fmt.Errorf("write header: %w", err)
+			}
+		}
+		for _, t := range pl.Tracks {
+			if err := w.Write(t.Raw); err != nil {
+				return fmt.Errorf("write row: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+func allHaveRaw(tracks []track.Track) bool {
+	for _, t := range tracks {
+		if t.Raw == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// writeCSV opens path (creating parent dirs), hands a writer to write, then flushes.
+func writeCSV(path string, useCRLF bool, write func(*csv.Writer) error) (err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
@@ -292,8 +368,17 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 	}()
 
 	writer := csv.NewWriter(file)
-	defer writer.Flush()
+	writer.UseCRLF = useCRLF
+	if werr := write(writer); werr != nil {
+		return werr
+	}
+	writer.Flush()
+	return writer.Error()
+}
 
+// writeCanonical writes tracks in magicmix's own schema: the core five columns plus
+// whichever optional signals any track carries.
+func writeCanonical(writer *csv.Writer, tracks []track.Track) error {
 	// Preserve optional signals only when at least one track carries them, so
 	// legacy 5-column files round-trip unchanged while rich files keep their data.
 	var hasDance, hasValence, hasPop, hasAcoustic bool
@@ -371,9 +456,7 @@ func Save(_ context.Context, path string, tracks []track.Track) (err error) {
 			return fmt.Errorf("write row: %w", err)
 		}
 	}
-
-	writer.Flush()
-	return writer.Error()
+	return nil
 }
 
 // optIntString renders an optional signal, using an empty cell when absent.
