@@ -1,4 +1,4 @@
-.PHONY: build install test clean fmt vet tidy deps lint modern modern-check ci help
+.PHONY: build install test clean fmt vet tidy deps lint modern modern-check ci snapshot help
 
 default: build
 
@@ -39,5 +39,8 @@ modern: ## Fix modern Go code issues
 
 ci: tidy build test vet modern-check ## Run all CI checks locally
 
+snapshot: ## Build a local release snapshot into dist/ (no publish)
+	@go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean --skip=publish
+
 clean: ## Clean build artifacts
-	@rm -rf bin/ coverage.out coverage.html
+	@rm -rf bin/ dist/ coverage.out coverage.html

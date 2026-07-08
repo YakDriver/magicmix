@@ -42,6 +42,9 @@ go.work.sum
 # Local CLI binary
 magicmix
 
+# GoReleaser build output
+dist/
+
 # Generated playlist output (written next to the input)
 *_magicmix.csv
 *_keep.csv

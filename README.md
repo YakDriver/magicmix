@@ -5,6 +5,15 @@ key, tempo, mood, and energy flow well — and drops the few that don't fit.
 
 ## Install
 
+Prebuilt binaries for macOS, Linux, and Windows are attached to each
+[release](https://github.com/YakDriver/magicmix/releases) — download the archive for
+your platform, extract, and put `magicmix` on your `PATH`.
+
+> On macOS, a downloaded binary is quarantined by Gatekeeper. Clear it with
+> `xattr -d com.apple.quarantine ./magicmix` (or right-click → Open once).
+
+Or install from source with Go:
+
 ```bash
 go install github.com/YakDriver/magicmix/cmd/magicmix@latest
 ```
